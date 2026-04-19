@@ -10,9 +10,9 @@ import json
 import logging
 import os
 import sys
-from typing import List, Optional
+from typing import List
 
-from models import GeneratedQuery, QueryRun, QueryCategory, SOICoverage
+from models import GeneratedQuery, QueryCategory, QueryRun
 
 logger = logging.getLogger("roboscout_query_gen.output_formatter")
 

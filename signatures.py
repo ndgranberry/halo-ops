@@ -10,11 +10,10 @@ Replaces:
   - prompts.py: All system/user prompt templates
 """
 
-from typing import List, Literal, Optional
+from typing import List, Literal
 
 import dspy
 from pydantic import BaseModel, Field
-
 
 # =============================================================================
 # Pydantic output models (replace tool_use JSON schemas)

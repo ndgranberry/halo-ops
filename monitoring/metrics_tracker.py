@@ -9,11 +9,8 @@ Detects quality degradation over a rolling 7-day window and triggers
 Slack alerts when thresholds are breached.
 """
 
-import json
 import logging
-import os
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger("roboscout_daily.metrics")

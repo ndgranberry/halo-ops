@@ -19,10 +19,8 @@ Lifecycle:
 7. Next daily run picks up approved prompt
 """
 
-import json
 import logging
 import os
-import sys
 from datetime import datetime
 from pathlib import Path
 

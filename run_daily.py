@@ -33,38 +33,30 @@ import logging
 import os
 import subprocess
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
-# Load .env before anything else
-from dotenv import load_dotenv
+# Centralized env loading + tunables (see config.py).
+from config import ConfigError, load_env, settings
 
-PROJECT_DIR = Path(__file__).parent
-for _env_path in [
-    PROJECT_DIR / ".env",
-    PROJECT_DIR / "config" / ".env",
-    PROJECT_DIR.parent / ".env",
-    PROJECT_DIR.parent.parent / ".env",
-]:
-    if _env_path.exists():
-        load_dotenv(_env_path, override=True)
-        break
-else:
-    load_dotenv()
+load_env()
 
 import requests
 
-# --- Config ---
-PYTHON = sys.executable
-
-# Google Sheet for query results (append mode)
-SHEET_URL = os.getenv(
-    "ROBOSCOUT_SHEET_URL",
-    "https://docs.google.com/spreadsheets/d/1MvQXMXLyyNMs2bfWg1JsSRLBfOGVF7Z5nPlj9fED-bU",
+from logging_setup import (
+    configure_logging,
+    export_run_id_to_env,
+    new_run_id,
+    set_run_id,
 )
 
-# Slack webhook for notifications
-# Create one at: https://api.slack.com/messaging/webhooks
+# --- Config ---
+PYTHON = sys.executable
+PROJECT_DIR = Path(__file__).parent
+
+SHEET_URL = settings.sheet_url
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
 
 # n8n webhook for Google Sheets population
@@ -74,16 +66,9 @@ N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL", "")
 LOG_DIR = PROJECT_DIR / "logs"
 LOG_DIR.mkdir(exist_ok=True)
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler(
-            LOG_DIR / f"daily_{datetime.now().strftime('%Y%m%d')}.log"
-        ),
-    ],
+# Configure structured / tagged logging with a per-day file handler.
+configure_logging(
+    log_file=LOG_DIR / f"daily_{datetime.now().strftime('%Y%m%d')}.log",
 )
 logger = logging.getLogger("roboscout_daily")
 
@@ -95,28 +80,64 @@ logger = logging.getLogger("roboscout_daily")
 def find_new_requests(hours: int = 24) -> dict:
     """Run --find-new to discover new requests from Snowflake."""
     logger.info(f"Finding new requests (last {hours}h)...")
-    result = subprocess.run(
-        [PYTHON, "roboscout_query_gen.py", "--find-new",
-         "--hours", str(hours), "--output-json"],
-        capture_output=True, text=True, cwd=PROJECT_DIR,
-        timeout=120,
-    )
+    try:
+        result = subprocess.run(
+            [PYTHON, "roboscout_query_gen.py", "--find-new",
+             "--hours", str(hours), "--output-json"],
+            capture_output=True, text=True, cwd=PROJECT_DIR,
+            timeout=settings.find_new_timeout,
+            env=export_run_id_to_env(os.environ),
+        )
+    except subprocess.TimeoutExpired:
+        logger.error("find-new timed out after %ds", settings.find_new_timeout)
+        return {"count": 0, "requests": []}
+
     if result.returncode != 0:
         logger.error(f"find-new failed: {result.stderr}")
         return {"count": 0, "requests": []}
 
-    return json.loads(result.stdout)
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError as e:
+        logger.error("find-new returned non-JSON: %s (stdout head: %s)",
+                     e, result.stdout[:200])
+        return {"count": 0, "requests": []}
+
+
+def _write_failure_marker(request_id: int, reason: str, detail: str = "") -> Path:
+    """Persist a JSON marker so timed-out / failed requests leave a trace.
+
+    Previously, a subprocess timeout just logged an error and dropped the
+    request. That meant we couldn't tell "we ran it and it crashed" apart
+    from "we never got to it" when inspecting logs after the fact.
+    """
+    marker_path = LOG_DIR / f"stdout_{request_id}_FAILED.json"
+    marker = {
+        "request_id": request_id,
+        "status": "failed",
+        "reason": reason,
+        "detail": detail[:4000],
+        "timestamp": datetime.now().isoformat(),
+    }
+    try:
+        marker_path.write_text(json.dumps(marker, indent=2))
+    except OSError as e:
+        logger.warning("Could not write failure marker for #%d: %s", request_id, e)
+    return marker_path
 
 
 def run_pipeline(request_id: int) -> dict:
     """Run the query generation pipeline for a single request.
 
     Saves per-request JSON and log files under logs/ for traceability.
+    On timeout, writes a failure-marker JSON so the request isn't silently
+    dropped from the run (previous behavior only left a log line behind).
     """
     logger.info(f"Running pipeline for request #{request_id}...")
     json_path = LOG_DIR / f"stdout_{request_id}_v6.json"
     log_path = LOG_DIR / f"run_{request_id}.log"
 
+    timeout = settings.per_request_timeout
     try:
         result = subprocess.run(
             [PYTHON, "roboscout_query_gen.py",
@@ -124,19 +145,58 @@ def run_pipeline(request_id: int) -> dict:
              "--output-json", str(json_path)],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, cwd=PROJECT_DIR,
-            timeout=1800,  # 30 min max per request
+            timeout=timeout,
+            env=export_run_id_to_env(os.environ),
         )
         try:
             log_path.write_text(result.stdout)
-        except Exception as e:
+        except OSError as e:
             logger.warning(f"Could not write log for #{request_id}: {e}")
-    except subprocess.TimeoutExpired:
-        logger.error(f"Pipeline timed out for #{request_id} (30 min limit)")
-        return {"error": "Pipeline timed out after 30 minutes", "request_id": request_id}
+    except subprocess.TimeoutExpired as e:
+        logger.error(
+            "Pipeline timed out for #%d (%ds limit)", request_id, timeout
+        )
+        partial = (getattr(e, "stdout", None) or b"")
+        if isinstance(partial, bytes):
+            try:
+                partial_text = partial.decode(errors="replace")
+            except Exception:
+                partial_text = ""
+        else:
+            partial_text = partial
+        if partial_text:
+            try:
+                log_path.write_text(partial_text)
+            except OSError:
+                pass
+        _write_failure_marker(
+            request_id,
+            reason=f"timeout_{timeout}s",
+            detail=partial_text[-4000:] if partial_text else "",
+        )
+        return {
+            "error": f"Pipeline timed out after {timeout} seconds",
+            "error_kind": "timeout",
+            "request_id": request_id,
+        }
+    except Exception as e:  # noqa: BLE001 — final safety net, logged w/ traceback
+        logger.exception("Unexpected error running #%d", request_id)
+        _write_failure_marker(request_id, reason="subprocess_crash", detail=str(e))
+        return {"error": str(e), "error_kind": "crash", "request_id": request_id}
 
     if result.returncode != 0:
         logger.error(f"Pipeline failed for #{request_id}: {result.stdout[-500:]}")
-        return {"error": result.stdout[-1000:], "request_id": request_id}
+        _write_failure_marker(
+            request_id,
+            reason=f"nonzero_exit_{result.returncode}",
+            detail=result.stdout[-4000:],
+        )
+        return {
+            "error": result.stdout[-1000:],
+            "error_kind": "nonzero_exit",
+            "returncode": result.returncode,
+            "request_id": request_id,
+        }
 
     # Read from the JSON file the pipeline wrote
     try:
@@ -147,8 +207,15 @@ def run_pipeline(request_id: int) -> dict:
         # Fallback: try parsing stdout (old behavior)
         try:
             return {"pipeline_output": json.loads(result.stdout)}
-        except Exception:
-            return {"error": str(e), "request_id": request_id}
+        except json.JSONDecodeError:
+            _write_failure_marker(
+                request_id, reason="bad_json", detail=str(e)
+            )
+            return {
+                "error": str(e),
+                "error_kind": "bad_json",
+                "request_id": request_id,
+            }
 
 
 # =============================================================================
@@ -233,6 +300,47 @@ def _get_or_create_worksheet(sh, name: str, headers: list):
     return ws
 
 
+def _dedup_rows_for_request(ws, request_id, id_col: int = 1) -> int:
+    """Delete existing rows in ``ws`` where column ``id_col`` equals request_id.
+
+    Prevents re-runs from duplicating rows across Queries / Coverage /
+    Run Metadata tabs. Returns number of rows deleted. Best-effort —
+    swallows errors (logs them) so a dedup failure doesn't block append.
+    """
+    if not settings.sheets_dedup:
+        return 0
+    try:
+        col_values = ws.col_values(id_col)
+    except Exception as e:
+        logger.warning("Dedup: could not read column %d of %s: %s",
+                       id_col, ws.title, e)
+        return 0
+
+    want = str(request_id)
+    # col_values is 1-indexed and includes header row. Collect row numbers
+    # to delete in DESCENDING order so deletes don't shift later indexes.
+    rows_to_delete = [
+        idx for idx, val in enumerate(col_values, start=1)
+        if idx > 1 and str(val).strip() == want
+    ]
+    if not rows_to_delete:
+        return 0
+
+    deleted = 0
+    for row_num in sorted(rows_to_delete, reverse=True):
+        try:
+            ws.delete_rows(row_num)
+            deleted += 1
+        except Exception as e:
+            logger.warning("Dedup: delete_rows(%d) on %s failed: %s",
+                           row_num, ws.title, e)
+            break
+    if deleted:
+        logger.info("Dedup: removed %d stale rows for #%s from %s",
+                    deleted, request_id, ws.title)
+    return deleted
+
+
 def _append_queries(sh, output: dict, rid, title, company):
     """Append valid + unvalidated queries to Queries tab."""
     headers = [
@@ -242,6 +350,7 @@ def _append_queries(sh, output: dict, rid, title, company):
         "Relevance Details", "Refinement Round", "Original Query",
     ]
     ws = _get_or_create_worksheet(sh, "Queries", headers)
+    _dedup_rows_for_request(ws, rid)
 
     rows = []
 
@@ -288,6 +397,7 @@ def _append_coverage(sh, output: dict, rid, title):
         "Solution of Interest", "# Queries", "Best Query", "Best Result Count",
     ]
     ws = _get_or_create_worksheet(sh, "Coverage", headers)
+    _dedup_rows_for_request(ws, rid)
 
     rows = []
     for cov in output.get("soi_coverage", []):
@@ -313,6 +423,8 @@ def _append_metadata(sh, output: dict, rid, title, company):
         "SOIs Covered",
     ]
     ws = _get_or_create_worksheet(sh, "Run Metadata", headers)
+    # Run Metadata: request_id is col B (col 2), not col A.
+    _dedup_rows_for_request(ws, rid, id_col=2)
 
     stats = output.get("stats", {})
     row = [
@@ -334,6 +446,46 @@ def _append_metadata(sh, output: dict, rid, title, company):
 # =============================================================================
 # n8n webhook — POST results for Sheets population
 # =============================================================================
+
+def _post_with_retry(
+    url: str, payload: dict, *, label: str, timeout: int = 60
+) -> Optional[requests.Response]:
+    """POST with exponential backoff. Returns the Response on success or None.
+
+    Extracted so Slack and n8n share the same retry policy (previously
+    each had a bare try/except with no retry).
+    """
+    if not url:
+        return None
+    last_err: Optional[str] = None
+    for attempt in range(settings.webhook_max_retries):
+        try:
+            resp = requests.post(
+                url,
+                json=payload,
+                timeout=timeout,
+                headers={"Content-Type": "application/json"},
+            )
+        except requests.RequestException as e:
+            last_err = f"{type(e).__name__}: {e}"
+            logger.warning(
+                "%s POST attempt %d failed: %s",
+                label, attempt + 1, last_err,
+            )
+        else:
+            if resp.status_code < 500 and resp.status_code != 429:
+                return resp  # 2xx/3xx/4xx (non-retryable) — hand back to caller
+            last_err = f"HTTP {resp.status_code}: {resp.text[:200]}"
+            logger.warning(
+                "%s returned %d (attempt %d/%d)",
+                label, resp.status_code, attempt + 1, settings.webhook_max_retries,
+            )
+        if attempt + 1 < settings.webhook_max_retries:
+            time.sleep(settings.webhook_backoff_seconds * (2 ** attempt))
+    logger.error("%s: exhausted %d retries. Last: %s",
+                 label, settings.webhook_max_retries, last_err)
+    return None
+
 
 def post_to_n8n(processed_results: list, prompt_version: str) -> bool:
     """POST pipeline results to n8n webhook for Google Sheets population.
@@ -360,22 +512,16 @@ def post_to_n8n(processed_results: list, prompt_version: str) -> bool:
             "pipeline_output": result["pipeline_output"],
         })
 
-    try:
-        resp = requests.post(
-            N8N_WEBHOOK_URL,
-            json=payload,
-            timeout=60,
-            headers={"Content-Type": "application/json"},
-        )
-        if resp.status_code == 200:
-            logger.info(f"Posted {len(processed_results)} results to n8n webhook")
-            return True
-        else:
-            logger.warning(f"n8n webhook returned {resp.status_code}: {resp.text[:200]}")
-            return False
-    except Exception as e:
-        logger.error(f"n8n webhook POST failed: {e}")
-        return False
+    resp = _post_with_retry(
+        N8N_WEBHOOK_URL, payload, label="n8n webhook", timeout=60
+    )
+    if resp is not None and resp.status_code == 200:
+        logger.info(f"Posted {len(processed_results)} results to n8n webhook")
+        return True
+    if resp is not None:
+        logger.warning("n8n webhook returned %d: %s",
+                       resp.status_code, resp.text[:200])
+    return False
 
 
 # =============================================================================
@@ -430,39 +576,27 @@ def send_slack_notification(all_results: list, request_list: list) -> bool:
         "unfurl_links": False,
     }
 
-    try:
-        resp = requests.post(
-            SLACK_WEBHOOK_URL,
-            json=payload,
-            timeout=30,
-            headers={"Content-Type": "application/json"},
-        )
-        if resp.status_code == 200:
-            logger.info("Slack notification sent")
-            return True
-        else:
-            logger.warning(f"Slack returned {resp.status_code}: {resp.text[:200]}")
-            return False
-    except Exception as e:
-        logger.error(f"Failed to send Slack notification: {e}")
-        return False
+    resp = _post_with_retry(
+        SLACK_WEBHOOK_URL, payload, label="Slack notification", timeout=30
+    )
+    if resp is not None and resp.status_code == 200:
+        logger.info("Slack notification sent")
+        return True
+    if resp is not None:
+        logger.warning("Slack returned %d: %s",
+                       resp.status_code, resp.text[:200])
+    return False
 
 
 def _send_slack_alert(message: str) -> bool:
-    """Send a standalone alert message to Slack."""
-    if not SLACK_WEBHOOK_URL:
-        return False
-    try:
-        resp = requests.post(
-            SLACK_WEBHOOK_URL,
-            json={"text": message, "unfurl_links": False},
-            timeout=30,
-            headers={"Content-Type": "application/json"},
-        )
-        return resp.status_code == 200
-    except Exception as e:
-        logger.error(f"Slack alert failed: {e}")
-        return False
+    """Send a standalone alert message to Slack (with retry)."""
+    resp = _post_with_retry(
+        SLACK_WEBHOOK_URL,
+        {"text": message, "unfurl_links": False},
+        label="Slack alert",
+        timeout=30,
+    )
+    return resp is not None and resp.status_code == 200
 
 
 # =============================================================================
@@ -505,7 +639,7 @@ def _direct_sheets_write(sh, processed: list, prompt_version: str):
 # Main
 # =============================================================================
 
-def main():
+def _parse_args():
     parser = argparse.ArgumentParser(
         description="RoboScout Daily Runner — pipeline + Sheets + Slack, all local"
     )
@@ -521,9 +655,17 @@ def main():
                         help="Skip Google Sheets append")
     parser.add_argument("--optimize", action="store_true",
                         help="Trigger manual GEPA prompt optimization")
-    args = parser.parse_args()
+    return parser.parse_args()
 
-    logger.info(f"=== RoboScout Daily Run — {datetime.now().isoformat()} ===")
+
+def _run(args):
+    """Actual work of main(), factored so we can wrap with a top-level guard."""
+    # Correlation ID for this entire batch — propagated to subprocesses via env.
+    run_id = new_run_id(prefix="daily")
+    set_run_id(run_id)
+
+    logger.info("=== RoboScout Daily Run — %s (run_id=%s) ===",
+                datetime.now().isoformat(), run_id)
 
     # Manual optimization mode
     if args.optimize:
@@ -534,7 +676,7 @@ def main():
         return
 
     # Step 0: Health check
-    from monitoring.health_check import run_all_checks, format_health_alert
+    from monitoring.health_check import format_health_alert, run_all_checks
     health_ok, health_issues = run_all_checks()
     if not health_ok:
         alert = format_health_alert(health_issues)
@@ -654,6 +796,32 @@ def main():
         send_slack_notification(all_results, request_list)
 
     logger.info("=== Done ===")
+
+
+def main():
+    """Entry point. Wraps _run with a belt-and-suspenders exception log.
+
+    Previously, if anything inside the batch loop raised unexpectedly, the
+    process could die silently without a stack trace in the log file (we
+    saw this happen after request #1682 timed out on 2026-04-16). This
+    handler guarantees a traceback lands in the log before exit.
+    """
+    args = _parse_args()
+    try:
+        _run(args)
+    except ConfigError as e:
+        # Expected misconfiguration — clear, actionable message; no traceback.
+        logger.error("Configuration error: %s", e)
+        sys.exit(2)
+    except KeyboardInterrupt:
+        logger.warning("Interrupted by user")
+        sys.exit(130)
+    except BaseException:
+        # Cover SystemExit from subprocess, asyncio cancels, etc. — we want
+        # a traceback in the log no matter what. Re-raise after logging so
+        # the exit code still reflects the failure.
+        logger.exception("Unhandled exception — batch aborting")
+        raise
 
 
 if __name__ == "__main__":

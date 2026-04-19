@@ -22,50 +22,39 @@ Usage:
 
 import argparse
 import logging
-import os
 import sys
 from datetime import datetime
-from pathlib import Path
-from typing import List
 
-# Load .env FIRST — before any module that might need env vars
-from dotenv import load_dotenv
+# Centralized env loading + settings (see config.py).
+from config import ConfigError, load_env, settings, validate_for
 
-_project_dir = Path(__file__).parent
-for _env_path in [
-    _project_dir / ".env",
-    _project_dir / "config" / ".env",
-    _project_dir.parent / ".env",
-    _project_dir.parent.parent / ".env",
-]:
-    if _env_path.exists():
-        load_dotenv(_env_path, override=True)
-        break
-else:
-    load_dotenv()
+load_env()
 
-from models import QueryRequest, GeneratedQuery, QueryRun, SOICoverage, QueryCategory
+from dspy_config import configure_lm, load_active_prompt
+from logging_setup import (
+    configure_logging,
+    current_run_id,
+    inherit_run_id_from_env,
+    new_run_id,
+    set_run_id,
+)
+from models import QueryRequest, QueryRun
+from modules import RoboScoutPipeline
+from output_formatter import OutputFormatter
 from request_loader import RequestLoader
 from semantic_scholar import SemanticScholarClient
-from output_formatter import OutputFormatter
-from dspy_config import configure_lm, load_active_prompt
-from modules import RoboScoutPipeline
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
+configure_logging()
+inherit_run_id_from_env()
 logger = logging.getLogger("roboscout_query_gen")
 
 
 class RoboScoutQueryGen:
     """Main pipeline orchestrator."""
 
-    def __init__(self, model: str = "claude-sonnet-4-20250514"):
-        self.model = model
-        configure_lm(model=f"anthropic/{model}")
+    def __init__(self, model: str = None):
+        self.model = model or settings.default_model
+        configure_lm(model=f"anthropic/{self.model}")
         self.s2_client = SemanticScholarClient()
         self.pipeline = RoboScoutPipeline(self.s2_client)
         self.prompt_version = load_active_prompt(self.pipeline)
@@ -79,8 +68,13 @@ class RoboScoutQueryGen:
         output_json: str = None,
     ) -> QueryRun:
         """Run the full pipeline."""
+        # Reuse an inherited run_id (from run_daily batch) or mint one.
+        rid = current_run_id()
+        if not rid:
+            rid = new_run_id()
+            set_run_id(rid)
         run = QueryRun(
-            run_id=f"rsqg_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+            run_id=rid,
             request=request,
             started_at=datetime.now().isoformat(),
             model_used=self.model,
@@ -119,7 +113,7 @@ class RoboScoutQueryGen:
         # Summary
         stats = run.stats
         logger.info(f"\n{'='*50}")
-        logger.info(f"Pipeline complete!")
+        logger.info("Pipeline complete!")
         logger.info(f"  Valid queries: {stats['valid']}/{stats['total_generated']}")
         if stats['unvalidated']:
             logger.info(f"  Unvalidated (S2 timeout): {stats['unvalidated']}")
@@ -179,8 +173,8 @@ def main():
     # Settings
     parser.add_argument(
         "--model",
-        default="claude-sonnet-4-20250514",
-        help="Claude model to use (default: claude-sonnet-4-20250514)",
+        default=settings.default_model,
+        help=f"Claude model to use (default: {settings.default_model})",
     )
 
     args = parser.parse_args()
@@ -188,14 +182,22 @@ def main():
     # If JSON output goes to stdout, redirect all logging to stderr
     # so n8n Execute Command gets clean JSON on stdout
     if args.output_json and (args.output_json == "-" or not args.output_json):
-        for handler in logging.root.handlers[:]:
-            logging.root.removeHandler(handler)
-        logging.basicConfig(
-            level=logging.INFO,
-            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-            stream=sys.stderr,
-        )
+        configure_logging(to_stderr=True, force=True)
+
+    # Fast-fail on missing env *before* we do any expensive work.
+    needed = []
+    if args.find_new or args.request_id:
+        needed.append("snowflake")
+    if not args.find_new:
+        needed.append("llm")
+    if args.output_sheet:
+        needed.append("sheets")
+    try:
+        if needed:
+            validate_for(needed)
+    except ConfigError as e:
+        logger.error("Configuration error: %s", e)
+        sys.exit(2)
 
     # --find-new mode: just query Snowflake and output IDs, then exit
     if args.find_new:
@@ -245,7 +247,7 @@ def main():
     pipeline = RoboScoutQueryGen(model=args.model)
 
     try:
-        run = pipeline.run(
+        pipeline.run(
             request=request,
             output_csv=args.output_csv,
             output_sheet=args.output_sheet,
@@ -254,8 +256,8 @@ def main():
     except KeyboardInterrupt:
         logger.info("\nInterrupted.")
         sys.exit(1)
-    except Exception as e:
-        logger.error(f"\nPipeline failed: {e}")
+    except Exception:
+        logger.exception("Pipeline failed")
         raise
 
 

@@ -18,6 +18,7 @@ from typing import Dict, List, Optional, Tuple
 
 import dspy
 
+from config import settings
 from models import GeneratedQuery, QueryCategory, QueryRequest, SOICoverage
 from signatures import (
     CheckRelevance,
@@ -75,8 +76,11 @@ class QueryGenerationModule(dspy.Module):
                 reference_guide=_GUIDE_TEXT,
             )
             return self._parse_output(result.output)
-        except Exception as e:
-            logger.error(f"Query generation failed: {e}")
+        except Exception:
+            # Broad except is intentional: DSPy/LiteLLM raise a wide variety
+            # of exceptions (network, JSON, Pydantic validation). Log with
+            # traceback so we can diagnose root causes from the log file.
+            logger.exception("Query generation failed — returning empty list")
             return [], []
 
     def forward_refine(
@@ -130,8 +134,12 @@ class QueryGenerationModule(dspy.Module):
             )
             return refined
 
-        except Exception as e:
-            logger.warning(f"Refinement failed for query '{query.query}': {e}")
+        except Exception:
+            logger.warning(
+                "Refinement failed for query %r — keeping original",
+                query.query,
+                exc_info=True,
+            )
             return query
 
     def forward_relevance(
@@ -168,8 +176,15 @@ class QueryGenerationModule(dspy.Module):
                 "total_checked": output.total_checked,
             }
 
-        except Exception as e:
-            logger.warning(f"Relevance check failed: {e}. Assuming pass.")
+        except Exception:
+            # Graceful degrade: if relevance LLM call fails, we assume
+            # pass rather than block the whole query. Traceback is logged
+            # so we can tune the LLM call if this fires often.
+            logger.warning(
+                "Relevance check failed for query %r — assuming pass",
+                query.query,
+                exc_info=True,
+            )
             return {"relevance_ratio": 1.0, "summary": "Check failed, assuming pass"}
 
     def forward_recovery(
@@ -357,6 +372,7 @@ class QueryValidationModule(dspy.Module):
     and SemanticScholarClient for external API calls.
     """
 
+    # Class-level defaults; instance may override from config.settings in __init__.
     MAX_REFINEMENT_ROUNDS = 3
     RELEVANCE_THRESHOLD = 0.6
     PAPERS_TO_CHECK = 20
@@ -370,6 +386,10 @@ class QueryValidationModule(dspy.Module):
         self.s2 = s2_client
         self.gen = gen_module
         self._soi_attempt_counts: Dict[str, int] = {}  # Per-SOI S2 call counter
+        # Pull tunables from config so they're configurable via env without code edits.
+        self.MAX_REFINEMENT_ROUNDS = settings.max_refinement_rounds
+        self.RELEVANCE_THRESHOLD = settings.relevance_threshold
+        self.PAPERS_TO_CHECK = settings.papers_to_check
 
     def forward(
         self,
@@ -465,17 +485,27 @@ class QueryValidationModule(dspy.Module):
 
             # Step 1: Get result count
             self._soi_attempt_counts[soi_key] = soi_count + 1
-            total, papers = self.s2.get_top_papers(
+            s2_result = self.s2.search_relevance(
                 current.query, limit=self.PAPERS_TO_CHECK
             )
 
-            if total < 0:
+            if not s2_result.ok:
+                # Explicit unvalidated state — distinct from "0 results".
+                # Retry pass in forward() will pick these up (is_unvalidated).
                 logger.warning(
-                    f"  S2 API error for '{current.query}', skipping validation"
+                    "  S2 API %s for '%s' (%s) — marking unvalidated",
+                    s2_result.status.value,
+                    current.query,
+                    s2_result.error,
                 )
                 current.result_count = None
+                current.relevance_details = (
+                    f"S2 {s2_result.status.value}: {s2_result.error or ''}".strip(": ")
+                )
                 return current
 
+            total = s2_result.total
+            papers = s2_result.papers
             current.result_count = total
             current.category = QueryCategory.from_count(total)
             current.sample_titles = [p.get("title", "") for p in papers]
@@ -639,7 +669,7 @@ class QueryValidationModule(dspy.Module):
                             "reason": f"Low relevance — {current.relevance_details}",
                         })
                         logger.info(
-                            f"  Relevance too low. Refining..."
+                            "  Relevance too low. Refining..."
                         )
                         current = self.gen.forward_refine(
                             current,

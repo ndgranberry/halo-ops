@@ -9,8 +9,9 @@ Reuses connection pattern from Proposal_Fit_Score/snowflake_pipeline.py.
 import logging
 import os
 import re
-from typing import List, Optional
+from typing import List
 
+from config import settings
 from models import QueryRequest
 
 logger = logging.getLogger("roboscout_query_gen.request_loader")
@@ -111,13 +112,17 @@ class RequestLoader:
         finally:
             cursor.close()
 
-    # Internal/test company IDs to exclude from automated runs
-    EXCLUDED_COMPANY_IDS = [2825, 1669]
+    # Internal/test company IDs to exclude from automated runs.
+    # Defaults live in config.Settings.excluded_company_ids and can be
+    # overridden via ROBOSCOUT_EXCLUDED_COMPANY_IDS env var without a code edit.
+    @property
+    def EXCLUDED_COMPANY_IDS(self) -> List[int]:
+        return list(settings.excluded_company_ids)
 
     def find_new_requests(self, hours: int = 24) -> list:
         """Find requests launched in the last N hours that are enabled and complete.
 
-        Excludes internal/test companies (IDs: 2825, 1669).
+        Excludes internal/test companies (configured in settings.excluded_company_ids).
 
         Returns list of dicts: [{"id": 1597, "title": "...", "launch_date": "..."}]
         """
@@ -125,7 +130,8 @@ class RequestLoader:
         cursor = conn.cursor()
 
         try:
-            placeholders = ",".join(["%s"] * len(self.EXCLUDED_COMPANY_IDS))
+            excluded = self.EXCLUDED_COMPANY_IDS
+            placeholders = ",".join(["%s"] * len(excluded)) if excluded else "NULL"
             cursor.execute(
                 f"""
                 SELECT
@@ -143,7 +149,7 @@ class RequestLoader:
                   AND (REQUESTABLE_TYPE = 'Rfp' OR REQUESTABLE_TYPE IS NULL)
                 ORDER BY REQUEST_LAUNCH_DATE DESC
                 """,
-                [hours] + self.EXCLUDED_COMPANY_IDS,
+                [hours] + excluded,
             )
 
             rows = cursor.fetchall()

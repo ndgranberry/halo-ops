@@ -1,0 +1,50 @@
+[project]
+name = "roboscout-query-gen"
+version = "0.2.0"
+description = "Generate Semantic Scholar queries for Halo partnering requests"
+requires-python = ">=3.9"
+
+# Runtime deps pinned in requirements.txt; this section exists so ruff
+# and pytest configuration below is colocated with project metadata.
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-q"
+# Silence the google-auth EOL warning when running tests on 3.9; remove
+# once we're off 3.9 (see UPGRADES.md).
+filterwarnings = [
+    "ignore::FutureWarning:google.auth",
+    "ignore::FutureWarning:google.oauth2",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+exclude = ["_legacy", "logs", "optimization/prompts", "optimization/auto_optimize.py", "optimization/metrics.py"]
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "F",      # pyflakes
+    "W",      # pycodestyle warnings
+    "I",      # isort
+    "B",      # flake8-bugbear
+    "SIM",    # flake8-simplify
+]
+ignore = [
+    "E501",   # line-too-long — handled by formatter
+    "B008",   # function-call-in-default (dataclass field() with factory is fine)
+    "B904",   # raise ... from err — existing raises are fine
+    "SIM105", # contextlib.suppress — not worth the import for a one-liner
+    "SIM117", # nested-with — existing cursors/contexts are intentionally nested
+]
+# UP rules (typing.List → list, etc.) deferred until the Python 3.12 migration
+# to avoid a large stylistic diff mid-refactor. See UPGRADES.md.
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]  # allow asserts in tests
+# Entry points intentionally call load_env() before other imports so env
+# vars are available when modules initialize their module-level state.
+"roboscout_query_gen.py" = ["E402"]
+"run_daily.py" = ["E402"]

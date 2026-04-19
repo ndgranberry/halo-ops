@@ -77,9 +77,7 @@ class GeneratedQuery:
             return False
         if self.category in (QueryCategory.TOO_BROAD, QueryCategory.TOO_NARROW):
             return False
-        if self.relevance_passed is False:
-            return False
-        return True
+        return self.relevance_passed is not False
 
     @property
     def is_unvalidated(self) -> bool:

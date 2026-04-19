@@ -10,15 +10,17 @@ from pathlib import Path
 
 import dspy
 
+from config import settings
+
 logger = logging.getLogger("roboscout_query_gen.dspy_config")
 
 PROMPT_DIR = Path(__file__).parent / "optimization" / "prompts"
 
 
 def configure_lm(
-    model: str = "anthropic/claude-sonnet-4-20250514",
-    temperature: float = 0.3,
-    max_tokens: int = 4096,
+    model: str = None,
+    temperature: float = None,
+    max_tokens: int = None,
 ) -> dspy.LM:
     """Configure the DSPy language model for the pipeline.
 
@@ -30,6 +32,14 @@ def configure_lm(
     Returns:
         The configured LM instance.
     """
+    # Fall back to settings (env-overridable) when explicit args are not supplied.
+    if model is None:
+        model = f"anthropic/{settings.default_model}"
+    if temperature is None:
+        temperature = settings.lm_temperature
+    if max_tokens is None:
+        max_tokens = settings.lm_max_tokens
+
     lm = dspy.LM(model, temperature=temperature, max_tokens=max_tokens)
     dspy.configure(lm=lm)
     logger.info(f"DSPy configured: model={model}, temperature={temperature}")

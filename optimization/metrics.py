@@ -10,7 +10,6 @@ Returns {"score": float, "feedback": str} where:
     reflective prompt evolution)
 """
 
-from typing import Any
 
 
 def query_generation_metric(gold, pred, trace=None, pred_name=None, pred_trace=None) -> dict:
