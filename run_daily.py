@@ -59,10 +59,6 @@ PROJECT_DIR = Path(__file__).parent
 SHEET_URL = settings.sheet_url
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
 
-# n8n webhook for Google Sheets population
-# When set, pipeline results are POSTed to this URL instead of writing to Sheets directly
-N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL", "")
-
 LOG_DIR = PROJECT_DIR / "logs"
 LOG_DIR.mkdir(exist_ok=True)
 
@@ -430,17 +426,13 @@ def _append_metadata(sh, output: dict, rid, title, company):
 
 
 # =============================================================================
-# n8n webhook — POST results for Sheets population
+# HTTP POST helper (used by Slack notifications)
 # =============================================================================
 
 def _post_with_retry(
     url: str, payload: dict, *, label: str, timeout: int = 60
 ) -> Optional[requests.Response]:
-    """POST with exponential backoff. Returns the Response on success or None.
-
-    Extracted so Slack and n8n share the same retry policy (previously
-    each had a bare try/except with no retry).
-    """
+    """POST with exponential backoff. Returns the Response on success or None."""
     if not url:
         return None
     last_err: Optional[str] = None
@@ -471,43 +463,6 @@ def _post_with_retry(
     logger.error("%s: exhausted %d retries. Last: %s",
                  label, settings.webhook_max_retries, last_err)
     return None
-
-
-def post_to_n8n(processed_results: list, prompt_version: str) -> bool:
-    """POST pipeline results to n8n webhook for Google Sheets population.
-
-    The n8n workflow handles writing to all 5 tabs:
-    Queries, Coverage, Run Metadata, Performance Trends, Feedback.
-
-    Args:
-        processed_results: List of result dicts with 'pipeline_output' key.
-        prompt_version: Current prompt version identifier.
-
-    Returns:
-        True if POST succeeded, False otherwise.
-    """
-    payload = {
-        "results": [],
-        "prompt_version": prompt_version,
-    }
-    for result in processed_results:
-        payload["results"].append({
-            "request_id": result.get("request_id"),
-            "title": result.get("title", ""),
-            "company": result.get("company", ""),
-            "pipeline_output": result["pipeline_output"],
-        })
-
-    resp = _post_with_retry(
-        N8N_WEBHOOK_URL, payload, label="n8n webhook", timeout=60
-    )
-    if resp is not None and resp.status_code == 200:
-        logger.info(f"Posted {len(processed_results)} results to n8n webhook")
-        return True
-    if resp is not None:
-        logger.warning("n8n webhook returned %d: %s",
-                       resp.status_code, resp.text[:200])
-    return False
 
 
 # =============================================================================
@@ -730,50 +685,24 @@ def _run(args):
         json.dump(all_results, f, indent=2, default=str)
     logger.info(f"Results saved to {backup_path}")
 
-    # Step 4: Append to Google Sheets + metrics + feedback
+    # Step 4: Direct-to-gspread: all 5 tabs (Queries, Coverage, Run Metadata,
+    # Performance Trends, Feedback). The n8n webhook path was removed on
+    # 2026-04-17 — see UPGRADES.md.
     if args.dry_run or args.no_sheets:
         logger.info("Skipping Google Sheets append")
-    elif N8N_WEBHOOK_URL:
-        # POST to n8n webhook — n8n handles all 5 Sheets tabs
-        logger.info("Using n8n webhook for Google Sheets population")
-        webhook_ok = post_to_n8n(processed, prompt_version)
-
-        if not webhook_ok:
-            logger.warning("n8n webhook failed — falling back to direct gspread writes")
-            try:
-                gc_sheets = _get_gspread_client()
-                sh_sheets = gc_sheets.open_by_url(SHEET_URL)
-                _direct_sheets_write(sh_sheets, processed, prompt_version)
-            except Exception as e:
-                logger.error(f"Fallback gspread write also failed: {e}")
-
-        # Quality degradation check (reads from Sheets — always via gspread)
-        try:
-            gc_read = _get_gspread_client()
-            sh_read = gc_read.open_by_url(SHEET_URL)
-            from monitoring.metrics_tracker import MetricsTracker
-            tracker = MetricsTracker(sh_read, prompt_version=prompt_version)
-            degradation = tracker.check_quality_degradation()
-            if degradation and not (args.dry_run or args.no_slack):
-                _send_slack_alert(degradation)
-        except Exception as e:
-            logger.warning(f"Quality degradation check failed: {e}")
     else:
-        # Direct gspread writes (no n8n webhook configured)
         try:
-            gc_sheets = _get_gspread_client()
-            sh_sheets = gc_sheets.open_by_url(SHEET_URL)
-            _direct_sheets_write(sh_sheets, processed, prompt_version)
+            sh = _get_gspread_client().open_by_url(SHEET_URL)
+            _direct_sheets_write(sh, processed, prompt_version)
 
-            # Check for quality degradation
+            # Quality-degradation alert — reads the just-written metrics.
             from monitoring.metrics_tracker import MetricsTracker
-            tracker = MetricsTracker(sh_sheets, prompt_version=prompt_version)
+            tracker = MetricsTracker(sh, prompt_version=prompt_version)
             degradation = tracker.check_quality_degradation()
-            if degradation and not (args.dry_run or args.no_slack):
+            if degradation and not args.no_slack:
                 _send_slack_alert(degradation)
-
-        except Exception as e:
-            logger.error(f"Google Sheets / monitoring failed: {e}")
+        except Exception:
+            logger.exception("Google Sheets / monitoring failed")
 
     # Step 5: Send Slack notification
     if args.dry_run or args.no_slack:

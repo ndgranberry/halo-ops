@@ -466,235 +466,57 @@ class QueryValidationModule(dspy.Module):
         """
         current = query
         soi_key = current.target_soi.strip().lower()
-        # Track all queries tried in this validation chain (for regeneration context)
         tried_queries: List[dict] = []
 
         for round_num in range(self.MAX_REFINEMENT_ROUNDS + 1):
-            # Check per-SOI attempt cap
-            soi_count = self._soi_attempt_counts.get(soi_key, 0)
-            if soi_count >= self.MAX_SOI_ATTEMPTS:
-                logger.warning(
-                    f"  SOI '{current.target_soi}' hit {self.MAX_SOI_ATTEMPTS}-attempt cap. "
-                    f"Rejecting '{current.query}' without further tries."
-                )
-                if current.relevance_passed is None:
-                    current.relevance_passed = False
-                    current.relevance_details = (
-                        f"SOI attempt cap ({self.MAX_SOI_ATTEMPTS}) reached"
-                    )
-                return current
+            # Guard: per-SOI attempt cap
+            capped = self._enforce_soi_cap(current, soi_key)
+            if capped is not None:
+                return capped
 
-            # Step 1: Get result count
-            self._soi_attempt_counts[soi_key] = soi_count + 1
-            s2_result = self.s2.search_relevance(
-                current.query, limit=self.PAPERS_TO_CHECK
+            # Step 1: fetch result count + sample papers from S2
+            fetched = self._fetch_s2(current, soi_key)
+            if fetched is False:
+                # unvalidated — caller's retry pass will pick it up
+                return current
+            total, papers = fetched
+
+            # Step 2: size-based classification
+            refined = self._handle_size(
+                current, request, total, round_num, tried_queries
             )
+            if refined is not None:
+                if refined is current:
+                    break  # rejected, out of refinements — fall to regeneration
+                current = refined
+                continue
 
-            if not s2_result.ok:
-                # Explicit unvalidated state — distinct from "0 results".
-                # Retry pass in forward() will pick these up (is_unvalidated).
-                logger.warning(
-                    "  S2 API %s for '%s' (%s) — marking unvalidated",
-                    s2_result.status.value,
-                    current.query,
-                    s2_result.error,
-                )
-                current.result_count = None
-                current.relevance_details = (
-                    f"S2 {s2_result.status.value}: {s2_result.error or ''}".strip(": ")
-                )
+            # Step 3: relevance spot-check (only if papers available)
+            if not papers:
+                current.relevance_passed = True
+                current.relevance_details = "No papers available for relevance check"
                 return current
 
-            total = s2_result.total
-            papers = s2_result.papers
-            current.result_count = total
-            current.category = QueryCategory.from_count(total)
-            current.sample_titles = [p.get("title", "") for p in papers]
-
-            logger.info(
-                f"  Results: {total} → {current.category.value} "
-                f"(SOI attempts: {self._soi_attempt_counts[soi_key]}/{self.MAX_SOI_ATTEMPTS})"
-            )
-
-            # Step 2a: Check if zero results — query is too narrow / useless
-            if total == 0:
-                tried_queries.append({
-                    "query": current.query,
-                    "result_count": 0,
-                    "reason": "Zero results — query too narrow",
-                })
-                if round_num < self.MAX_REFINEMENT_ROUNDS:
-                    logger.info("  Zero results. Refining to broaden...")
-                    current = self.gen.forward_refine(
-                        current,
-                        request,
-                        problem=(
-                            "Query returns 0 results. Broaden by using fewer "
-                            "terms or more general vocabulary while staying on-topic."
-                        ),
-                        target_range="20-500 results",
-                    )
-                    continue
-                else:
-                    logger.warning(
-                        f"  Still zero results after {self.MAX_REFINEMENT_ROUNDS} "
-                        f"refinements. Rejecting."
-                    )
-                    current.relevance_passed = False
-                    current.relevance_details = (
-                        "Zero results — query too narrow"
-                    )
-                    break  # Fall through to regeneration check
-
-            # Step 2b: Check if too narrow (< 20 results)
-            elif current.category == QueryCategory.TOO_NARROW:
-                tried_queries.append({
-                    "query": current.query,
-                    "result_count": total,
-                    "reason": f"Too narrow ({total} < 20)",
-                })
-                if round_num < self.MAX_REFINEMENT_ROUNDS:
-                    logger.info(
-                        f"  Too narrow ({total} < 20). Refining to broaden..."
-                    )
-                    current = self.gen.forward_refine(
-                        current,
-                        request,
-                        problem=(
-                            f"Query returns only {total} results, which is below "
-                            f"the 20-result minimum. Broaden by using slightly more "
-                            f"general terms while staying on-topic."
-                        ),
-                        target_range="20-500 results",
-                    )
-                    continue
-                else:
-                    logger.warning(
-                        f"  Still too narrow after {self.MAX_REFINEMENT_ROUNDS} "
-                        f"refinements. Rejecting."
-                    )
-                    break  # Fall through to regeneration check
-
-            # Step 2c: Check if too broad
-            elif current.category == QueryCategory.TOO_BROAD:
-                tried_queries.append({
-                    "query": current.query,
-                    "result_count": total,
-                    "reason": f"Too broad ({total} > 3000)",
-                })
-                if round_num < self.MAX_REFINEMENT_ROUNDS:
-                    logger.info(f"  Too broad ({total} > 3000). Refining...")
-                    current = self.gen.forward_refine(
-                        current,
-                        request,
-                        problem=(
-                            f"Query returns {total} results, which exceeds the "
-                            f"3,000 limit. Add more specific terms or field "
-                            f"context to narrow results."
-                        ),
-                        target_range="under 3,000 (ideally 500-1,000)",
-                    )
-                    continue
-                else:
-                    logger.warning(
-                        f"  Still too broad after {self.MAX_REFINEMENT_ROUNDS} "
-                        f"refinements. Rejecting."
-                    )
-                    break  # Fall through to regeneration check
-
-            # Step 3: Relevance spot-check (only if we got papers)
-            else:
-                if papers:
-                    import math
-
-                    total_papers = len(papers)
-                    needed = math.ceil(total_papers * self.RELEVANCE_THRESHOLD)
-                    batch_size = self.EARLY_CHECK_SIZE
-                    cumulative_relevant = 0
-                    cumulative_checked = 0
-                    last_summary = ""
-                    early_exited = False
-
-                    # Check in batches of EARLY_CHECK_SIZE, exit if math says impossible
-                    for batch_start in range(0, total_papers, batch_size):
-                        batch = papers[batch_start : batch_start + batch_size]
-                        batch_result = self.gen.forward_relevance(
-                            current, request, batch
-                        )
-                        cumulative_relevant += batch_result.get("relevant_count", 0)
-                        cumulative_checked += batch_result.get(
-                            "total_checked", len(batch)
-                        )
-                        last_summary = batch_result.get("summary", "")
-
-                        remaining = total_papers - cumulative_checked
-                        max_possible = cumulative_relevant + remaining
-
-                        logger.info(
-                            f"  Relevance batch {batch_start // batch_size + 1}: "
-                            f"{cumulative_relevant}/{cumulative_checked} relevant so far, "
-                            f"need {needed}/{total_papers}"
-                        )
-
-                        if max_possible < needed:
-                            current.relevance_passed = False
-                            current.relevance_details = (
-                                f"Early exit at {cumulative_checked}/{total_papers}: "
-                                f"{cumulative_relevant} relevant, need {needed} — "
-                                f"impossible even if all {remaining} remaining "
-                                f"are relevant — {last_summary}"
-                            )
-                            logger.info(
-                                f"  Mathematically impossible to reach "
-                                f"{self.RELEVANCE_THRESHOLD:.0%} — stopping"
-                            )
-                            early_exited = True
-                            break
-
-                    if not early_exited:
-                        ratio = cumulative_relevant / total_papers if total_papers else 0
-                        current.relevance_passed = ratio >= self.RELEVANCE_THRESHOLD
-                        current.relevance_details = last_summary
-                        verdict = "pass" if current.relevance_passed else "fail"
-                        logger.info(
-                            f"  Relevance: {ratio:.0%} — {verdict} — {last_summary}"
-                        )
-
-                    if (
-                        not current.relevance_passed
-                        and round_num < self.MAX_REFINEMENT_ROUNDS
-                    ):
-                        tried_queries.append({
-                            "query": current.query,
-                            "result_count": total,
-                            "reason": f"Low relevance — {current.relevance_details}",
-                        })
-                        logger.info(
-                            "  Relevance too low. Refining..."
-                        )
-                        current = self.gen.forward_refine(
-                            current,
-                            request,
-                            problem=f"Top results mostly irrelevant. {current.relevance_details}",
-                            target_range=f"under {current.result_count} with better relevance",
-                        )
-                        continue
-                    elif not current.relevance_passed:
-                        tried_queries.append({
-                            "query": current.query,
-                            "result_count": total,
-                            "reason": f"Low relevance — {current.relevance_details}",
-                        })
-                        break  # Fall through to regeneration check
-                else:
-                    # No papers returned but count > 0 — skip relevance check
-                    current.relevance_passed = True
-                    current.relevance_details = (
-                        "No papers available for relevance check"
-                    )
-
-                # Passed all checks
+            self._run_relevance_check(current, request, papers)
+            if current.relevance_passed:
                 return current
+
+            # Relevance failed — either refine or break to regeneration
+            tried_queries.append({
+                "query": current.query,
+                "result_count": total,
+                "reason": f"Low relevance — {current.relevance_details}",
+            })
+            if round_num < self.MAX_REFINEMENT_ROUNDS:
+                logger.info("  Relevance too low. Refining...")
+                current = self.gen.forward_refine(
+                    current,
+                    request,
+                    problem=f"Top results mostly irrelevant. {current.relevance_details}",
+                    target_range=f"under {current.result_count} with better relevance",
+                )
+                continue
+            break
 
         # === Regeneration: query exhausted all refinement rounds ===
         if allow_regenerate and not current.is_valid:
@@ -730,6 +552,210 @@ class QueryValidationModule(dspy.Module):
                 )
 
         return current
+
+    # ------------------------------------------------------------------
+    # _validate_single helpers (extracted 2026-04-17 — split of the old
+    # 280-line method). Keeping them as methods on the module so they
+    # share `self.gen`, `self.s2`, `self._soi_attempt_counts`, and the
+    # class-level tunables.
+    # ------------------------------------------------------------------
+
+    def _enforce_soi_cap(
+        self, current: GeneratedQuery, soi_key: str
+    ) -> Optional[GeneratedQuery]:
+        """If this SOI has hit its attempt cap, stamp the query and return it.
+        Otherwise return None to let the caller proceed."""
+        soi_count = self._soi_attempt_counts.get(soi_key, 0)
+        if soi_count < self.MAX_SOI_ATTEMPTS:
+            return None
+        logger.warning(
+            f"  SOI '{current.target_soi}' hit {self.MAX_SOI_ATTEMPTS}-attempt cap. "
+            f"Rejecting '{current.query}' without further tries."
+        )
+        if current.relevance_passed is None:
+            current.relevance_passed = False
+            current.relevance_details = (
+                f"SOI attempt cap ({self.MAX_SOI_ATTEMPTS}) reached"
+            )
+        return current
+
+    def _fetch_s2(
+        self, current: GeneratedQuery, soi_key: str
+    ) -> "Tuple[int, List[dict]] | bool":
+        """Run one S2 call and update ``current`` with count/category/titles.
+
+        Returns (total, papers) on success, or False on any S2 error (in
+        which case ``current`` is marked unvalidated with explicit
+        status/error details).
+        """
+        self._soi_attempt_counts[soi_key] = (
+            self._soi_attempt_counts.get(soi_key, 0) + 1
+        )
+        s2_result = self.s2.search_relevance(
+            current.query, limit=self.PAPERS_TO_CHECK
+        )
+        if not s2_result.ok:
+            logger.warning(
+                "  S2 API %s for '%s' (%s) — marking unvalidated",
+                s2_result.status.value,
+                current.query,
+                s2_result.error,
+            )
+            current.result_count = None
+            current.relevance_details = (
+                f"S2 {s2_result.status.value}: {s2_result.error or ''}".strip(": ")
+            )
+            return False
+
+        total = s2_result.total
+        papers = s2_result.papers
+        current.result_count = total
+        current.category = QueryCategory.from_count(total)
+        current.sample_titles = [p.get("title", "") for p in papers]
+        logger.info(
+            f"  Results: {total} → {current.category.value} "
+            f"(SOI attempts: {self._soi_attempt_counts[soi_key]}/{self.MAX_SOI_ATTEMPTS})"
+        )
+        return total, papers
+
+    def _handle_size(
+        self,
+        current: GeneratedQuery,
+        request: QueryRequest,
+        total: int,
+        round_num: int,
+        tried_queries: List[dict],
+    ) -> Optional[GeneratedQuery]:
+        """Dispatch size-based rejection / refinement.
+
+        Returns:
+          - a *new* refined GeneratedQuery  → caller should replace `current` and continue
+          - the same `current` object        → caller should break to regeneration
+          - None                             → query is in-range; caller should proceed
+                                               to the relevance check
+        """
+        if total == 0:
+            return self._refine_or_break(
+                current, request, round_num, tried_queries,
+                reason="Zero results — query too narrow",
+                problem=(
+                    "Query returns 0 results. Broaden by using fewer terms or "
+                    "more general vocabulary while staying on-topic."
+                ),
+                target_range="20-500 results",
+                reject_stamp=("Zero results — query too narrow"),
+            )
+        if current.category == QueryCategory.TOO_NARROW:
+            return self._refine_or_break(
+                current, request, round_num, tried_queries,
+                reason=f"Too narrow ({total} < 20)",
+                problem=(
+                    f"Query returns only {total} results, which is below the "
+                    f"20-result minimum. Broaden by using slightly more "
+                    f"general terms while staying on-topic."
+                ),
+                target_range="20-500 results",
+            )
+        if current.category == QueryCategory.TOO_BROAD:
+            return self._refine_or_break(
+                current, request, round_num, tried_queries,
+                reason=f"Too broad ({total} > 3000)",
+                problem=(
+                    f"Query returns {total} results, which exceeds the 3,000 "
+                    f"limit. Add more specific terms or field context to "
+                    f"narrow results."
+                ),
+                target_range="under 3,000 (ideally 500-1,000)",
+            )
+        # SPECIFIC / MODERATE / GENERAL — in range, caller proceeds to relevance.
+        return None
+
+    def _refine_or_break(
+        self,
+        current: GeneratedQuery,
+        request: QueryRequest,
+        round_num: int,
+        tried_queries: List[dict],
+        *,
+        reason: str,
+        problem: str,
+        target_range: str,
+        reject_stamp: Optional[str] = None,
+    ) -> GeneratedQuery:
+        """Common pattern: log a size failure, try to refine if budget
+        allows, otherwise return the same query so the caller can fall
+        through to regeneration.
+        """
+        tried_queries.append({
+            "query": current.query,
+            "result_count": current.result_count or 0,
+            "reason": reason,
+        })
+        if round_num < self.MAX_REFINEMENT_ROUNDS:
+            logger.info("  %s. Refining...", reason)
+            return self.gen.forward_refine(
+                current, request, problem=problem, target_range=target_range
+            )
+        logger.warning(
+            "  Still %s after %d refinements. Rejecting.",
+            reason, self.MAX_REFINEMENT_ROUNDS,
+        )
+        if reject_stamp:
+            current.relevance_passed = False
+            current.relevance_details = reject_stamp
+        return current  # sentinel: caller breaks to regeneration
+
+    def _run_relevance_check(
+        self,
+        current: GeneratedQuery,
+        request: QueryRequest,
+        papers: List[dict],
+    ) -> None:
+        """Batched relevance check with math-impossible early exit.
+        Mutates ``current`` — sets relevance_passed and relevance_details.
+        """
+        import math
+
+        total_papers = len(papers)
+        needed = math.ceil(total_papers * self.RELEVANCE_THRESHOLD)
+        batch_size = self.EARLY_CHECK_SIZE
+        cumulative_relevant = 0
+        cumulative_checked = 0
+        last_summary = ""
+
+        for batch_start in range(0, total_papers, batch_size):
+            batch = papers[batch_start : batch_start + batch_size]
+            batch_result = self.gen.forward_relevance(current, request, batch)
+            cumulative_relevant += batch_result.get("relevant_count", 0)
+            cumulative_checked += batch_result.get("total_checked", len(batch))
+            last_summary = batch_result.get("summary", "")
+
+            logger.info(
+                f"  Relevance batch {batch_start // batch_size + 1}: "
+                f"{cumulative_relevant}/{cumulative_checked} relevant so far, "
+                f"need {needed}/{total_papers}"
+            )
+
+            remaining = total_papers - cumulative_checked
+            if cumulative_relevant + remaining < needed:
+                current.relevance_passed = False
+                current.relevance_details = (
+                    f"Early exit at {cumulative_checked}/{total_papers}: "
+                    f"{cumulative_relevant} relevant, need {needed} — "
+                    f"impossible even if all {remaining} remaining are "
+                    f"relevant — {last_summary}"
+                )
+                logger.info(
+                    f"  Mathematically impossible to reach "
+                    f"{self.RELEVANCE_THRESHOLD:.0%} — stopping"
+                )
+                return
+
+        ratio = cumulative_relevant / total_papers if total_papers else 0
+        current.relevance_passed = ratio >= self.RELEVANCE_THRESHOLD
+        current.relevance_details = last_summary
+        verdict = "pass" if current.relevance_passed else "fail"
+        logger.info(f"  Relevance: {ratio:.0%} — {verdict} — {last_summary}")
 
 
 # =============================================================================

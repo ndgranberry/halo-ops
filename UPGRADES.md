@@ -1,5 +1,61 @@
 # RoboScout — Upgrade Notes
 
+## Changelog — 2026-04-17 round 3 (cleanup & simplify)
+
+### Removed
+- **n8n webhook write path.** `run_daily.py` previously had a 3-branch
+  Sheets dispatch (n8n primary / n8n-fallback-to-direct / direct-only).
+  All traffic was going through n8n in production, but n8n was only
+  ever a hop to Sheets. Replaced with a single direct-gspread call.
+  ~80 lines removed from `run_daily.py`.
+  - `post_to_n8n()`, `N8N_WEBHOOK_URL` env var, and `n8n_workflow.json`
+    / `n8n_sheets_webhook.json` are gone.
+  - If you had `N8N_WEBHOOK_URL` set, it's now ignored. Safe to remove
+    from `config/.env`.
+- **`_legacy/`** (pre-DSPy `query_generator.py`, `query_validator.py`,
+  `prompts.py`). Six weeks of stable DSPy operation = rollback path is
+  git history, not a directory.
+- Loose scratch files from March: `2` (misfired shell redirect),
+  `test_dspy_1597.*`, `test_queries.csv`, `test_webhook_payload.json`,
+  `request_1597_queries*.csv`.
+
+### Split
+- **`QueryValidationModule._validate_single`** — the 280-line branching
+  monolith is now a 70-line top-level loop plus five focused helpers:
+  - `_enforce_soi_cap` — per-SOI attempt-cap guard
+  - `_fetch_s2` — S2 call + result-bookkeeping; returns False on failure
+  - `_handle_size` — dispatches ZERO / TOO_NARROW / TOO_BROAD to refinement
+  - `_refine_or_break` — shared pattern for all three size rejections
+  - `_run_relevance_check` — batched relevance with math-impossible early-exit
+  Each helper is now unit-testable in isolation.
+
+### Added
+- **`tests/test_validation.py`** — 8 fixture tests pinning down
+  `_validate_single` behavior across happy path, refinement, S2
+  failure, relevance early-exit, and edge cases. These were written
+  BEFORE the split so they locked in behavior parity across the
+  refactor.
+
+---
+
+## Changelog — 2026-04-17 round 2 (observability & factoring)
+
+- **Wire `timed_stage` into `RoboScoutPipeline.forward`** —
+  per-stage elapsed-time logging (`1-generate`, `2-validate`,
+  `3-coverage`, `3.5-recovery`). Finally answers "where did the 28
+  minutes go?"
+- **Extract `sheets_client.py`** — single gspread client factory with
+  a per-process cache. `run_daily.py` and `output_formatter.py` now
+  delegate instead of each rebuilding the auth chain.
+- **`FeedbackSheet.dedup_untouched_rows(request_id)`** — deletes prior
+  rows for a request_id only when Rating/Notes/Suggested/Processed
+  are all empty. Preserves rows the manager has touched or the
+  optimizer has already ingested. Called automatically before
+  `populate_queries_for_feedback` so re-runs no longer accumulate
+  duplicate entries on the Feedback tab.
+
+---
+
 ## Changelog — 2026-04-17 review pass
 
 Refactor round driven by the in-depth review in chat. All changes are
