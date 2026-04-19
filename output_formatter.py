@@ -8,7 +8,6 @@ Write validated queries to Google Sheets or CSV.
 import csv
 import json
 import logging
-import os
 import sys
 from typing import List
 
@@ -135,21 +134,10 @@ class OutputFormatter:
         return output_path
 
     def write_sheets(self, run: QueryRun, sheet_url: str) -> str:
-        """Write results to Google Sheets."""
-        import gspread
-        from google.oauth2.service_account import Credentials
+        """Write results to Google Sheets (uses the shared gspread client)."""
+        from sheets_client import open_sheet
 
-        creds_path = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
-        if not creds_path:
-            raise ValueError("GOOGLE_SERVICE_ACCOUNT_JSON not set")
-
-        scopes = [
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive",
-        ]
-        creds = Credentials.from_service_account_file(creds_path, scopes=scopes)
-        gc = gspread.authorize(creds)
-        sh = gc.open_by_url(sheet_url)
+        sh = open_sheet(sheet_url)
 
         # Tab 1: Valid Queries
         self._write_queries_tab(sh, run.valid_queries)

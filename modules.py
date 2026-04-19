@@ -19,6 +19,7 @@ from typing import Dict, List, Optional, Tuple
 import dspy
 
 from config import settings
+from logging_setup import timed_stage
 from models import GeneratedQuery, QueryCategory, QueryRequest, SOICoverage
 from signatures import (
     CheckRelevance,
@@ -758,8 +759,8 @@ class RoboScoutPipeline(dspy.Module):
             (all_queries, expanded_sois, soi_coverage)
         """
         # Stage 1: Generate candidate queries
-        logger.info("=== Stage 1: Generating queries ===")
-        queries, expanded_sois = self.gen(request)
+        with timed_stage("1-generate", logger):
+            queries, expanded_sois = self.gen(request)
 
         if not queries:
             logger.error(
@@ -770,12 +771,12 @@ class RoboScoutPipeline(dspy.Module):
         logger.info(f"Generated {len(queries)} candidate queries")
 
         # Stage 2: Validate queries against Semantic Scholar
-        logger.info("\n=== Stage 2: Validating queries ===")
-        queries = self.validator(queries, request)
+        with timed_stage("2-validate", logger):
+            queries = self.validator(queries, request)
 
         # Stage 3: Build SOI coverage analysis
-        logger.info("\n=== Stage 3: Analyzing SOI coverage ===")
-        soi_coverage = self._analyze_coverage(queries, expanded_sois)
+        with timed_stage("3-coverage", logger):
+            soi_coverage = self._analyze_coverage(queries, expanded_sois)
 
         for cov in soi_coverage:
             if not cov.queries:
@@ -810,9 +811,10 @@ class RoboScoutPipeline(dspy.Module):
 
             failed_by_soi = self._collect_failed_for_sois(queries, uncovered)
 
-            recovery_queries, _ = self.gen.forward_recovery(
-                request, uncovered, failed_by_soi
-            )
+            with timed_stage("3.5-recovery", logger):
+                recovery_queries, _ = self.gen.forward_recovery(
+                    request, uncovered, failed_by_soi
+                )
 
             if recovery_queries:
                 logger.info(

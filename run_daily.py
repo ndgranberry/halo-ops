@@ -223,23 +223,9 @@ def run_pipeline(request_id: int) -> dict:
 # =============================================================================
 
 def _get_gspread_client():
-    """Create authenticated gspread client."""
-    import gspread
-    from google.oauth2.service_account import Credentials
-
-    creds_path = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
-    if not creds_path:
-        raise ValueError(
-            "GOOGLE_SERVICE_ACCOUNT_JSON not set. "
-            "Point it to your service account JSON file."
-        )
-
-    scopes = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive",
-    ]
-    creds = Credentials.from_service_account_file(creds_path, scopes=scopes)
-    return gspread.authorize(creds)
+    """Create authenticated gspread client (delegates to shared factory)."""
+    from sheets_client import get_client
+    return get_client()
 
 
 def append_to_sheets(all_results: list) -> bool:

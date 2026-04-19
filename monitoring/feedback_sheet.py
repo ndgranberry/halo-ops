@@ -131,6 +131,72 @@ class FeedbackSheet:
 
         return ws
 
+    def dedup_untouched_rows(self, request_id) -> int:
+        """Delete prior rows for this request_id that the manager hasn't touched.
+
+        "Touched" = Rating, Notes, Suggested Query, or Processed column
+        has any value. We preserve those rows so re-runs can't clobber
+        human feedback or already-ingested training signal.
+
+        Returns the number of rows deleted. Best-effort: errors are
+        logged and swallowed so a dedup failure never blocks append.
+        """
+        try:
+            ws = self.sheet.worksheet("Feedback")
+        except Exception:
+            return 0
+
+        try:
+            all_values = ws.get_all_values()
+        except Exception as e:
+            logger.warning("Feedback dedup: could not read rows: %s", e)
+            return 0
+
+        if len(all_values) <= 1:
+            return 0
+
+        want = str(request_id)
+        # 1-indexed row numbers to delete, collected in descending order
+        # so deletes don't shift remaining indexes.
+        to_delete = []
+        for idx, row in enumerate(all_values[1:], start=2):  # skip header
+            if len(row) <= self.COL_REQUEST_ID:
+                continue
+            if str(row[self.COL_REQUEST_ID]).strip() != want:
+                continue
+            # If ANY of the human / ingestion columns have content, keep.
+            touched = any(
+                len(row) > c and str(row[c]).strip()
+                for c in (
+                    self.COL_RATING,
+                    self.COL_NOTES,
+                    self.COL_SUGGESTED_QUERY,
+                    self.COL_PROCESSED,
+                )
+            )
+            if not touched:
+                to_delete.append(idx)
+
+        if not to_delete:
+            return 0
+
+        deleted = 0
+        for row_num in sorted(to_delete, reverse=True):
+            try:
+                ws.delete_rows(row_num)
+                deleted += 1
+            except Exception as e:
+                logger.warning(
+                    "Feedback dedup: delete_rows(%d) failed: %s", row_num, e
+                )
+                break
+        if deleted:
+            logger.info(
+                "Feedback dedup: removed %d untouched rows for #%s",
+                deleted, request_id,
+            )
+        return deleted
+
     def populate_queries_for_feedback(self, pipeline_output: dict,
                                        request_id=None, prompt_version: str = "baseline"):
         """Add a RUN header row + query detail rows to the Feedback tab.
@@ -138,11 +204,18 @@ class FeedbackSheet:
         Pre-fills Row Type, Date, Request ID, Query, SOI, Result Count,
         Category, Prompt Version. Leaves Rating, Notes, Suggested Query
         blank for the manager to fill in.
+
+        Before append, removes any prior untouched rows for this
+        request_id so re-runs don't accumulate duplicate entries.
         """
         try:
             ws = self.sheet.worksheet("Feedback")
         except Exception:
             ws = self.setup_feedback_tab()
+
+        rid_for_dedup = request_id or pipeline_output.get("request_id", "")
+        if rid_for_dedup != "":
+            self.dedup_untouched_rows(rid_for_dedup)
 
         rows = []
         date_str = datetime.now().strftime("%Y-%m-%d")
