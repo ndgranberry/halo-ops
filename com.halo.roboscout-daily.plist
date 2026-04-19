@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Label: unique identifier for this job -->
+    <key>Label</key>
+    <string>com.halo.roboscout-daily</string>
+
+    <!-- Program + Arguments: what to run -->
+    <key>ProgramArguments</key>
+    <array>
+        <!-- IMPORTANT: Update this path to your Python interpreter -->
+        <!-- Find it by running: which python3 (or the path from your venv) -->
+        <string>/usr/local/bin/python3</string>
+        <string>/Users/ndgranberry/Library/CloudStorage/GoogleDrive-neil@halo.science/Shared drives/Halo Company Drive/Claude_Halo_Workspace/projects/roboscout_query_gen/run_daily.py</string>
+    </array>
+
+    <!-- Working directory -->
+    <key>WorkingDirectory</key>
+    <string>/Users/ndgranberry/Library/CloudStorage/GoogleDrive-neil@halo.science/Shared drives/Halo Company Drive/Claude_Halo_Workspace/projects/roboscout_query_gen</string>
+
+    <!-- Schedule: run daily at 6:00 AM local time -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>6</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <!-- Environment variables -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+    </dict>
+
+    <!-- Stdout/stderr logging -->
+    <key>StandardOutPath</key>
+    <string>/Users/ndgranberry/Library/CloudStorage/GoogleDrive-neil@halo.science/Shared drives/Halo Company Drive/Claude_Halo_Workspace/projects/roboscout_query_gen/logs/launchagent_stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/ndgranberry/Library/CloudStorage/GoogleDrive-neil@halo.science/Shared drives/Halo Company Drive/Claude_Halo_Workspace/projects/roboscout_query_gen/logs/launchagent_stderr.log</string>
+
+    <!-- If machine was asleep at scheduled time, run when it wakes up -->
+    <!-- Note: StartCalendarInterval automatically catches up on missed runs -->
+
+    <!-- Don't keep restarting if it crashes -->
+    <key>KeepAlive</key>
+    <false/>
+</dict>
+</plist>

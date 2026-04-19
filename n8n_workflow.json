@@ -1,0 +1,385 @@
+{
+  "name": "RoboScout Daily Query Generator",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 6 * * *"
+            }
+          ]
+        }
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000001",
+      "name": "Daily 6 AM UTC",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "command": "cd \"/Users/ndgranberry/Library/CloudStorage/GoogleDrive-neil@halo.science/Shared drives/Halo Company Drive/Claude_Halo_Workspace/projects/roboscout_query_gen\" && python3 roboscout_query_gen.py --find-new --output-json 2>/dev/null"
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000002",
+      "name": "Find New Requests",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Parse --find-new JSON output and split into one item per request\nconst stdout = $input.first().json.stdout;\nlet data;\ntry {\n  data = JSON.parse(stdout);\n} catch (e) {\n  return [{ json: { count: 0, error: 'Failed to parse find-new output: ' + e.message } }];\n}\n\nif (!data.count || data.count === 0) {\n  return [{ json: { count: 0 } }];\n}\n\n// Output one item per request — Run Pipeline processes each\nreturn data.requests.map(r => ({\n  json: {\n    request_id: r.id,\n    title: r.title,\n    company: r.company,\n    launch_date: r.launch_date,\n    count: data.count\n  }\n}));"
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000003",
+      "name": "Parse New Requests",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-has-requests",
+              "leftValue": "={{ $json.count }}",
+              "rightValue": "0",
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000004",
+      "name": "Has New Requests?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "command": "=cd \"/Users/ndgranberry/Library/CloudStorage/GoogleDrive-neil@halo.science/Shared drives/Halo Company Drive/Claude_Halo_Workspace/projects/roboscout_query_gen\" && python3 roboscout_query_gen.py --request-id {{ $json.request_id }} --output-json 2>/dev/null"
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000005",
+      "name": "Run Pipeline",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [1120, 300],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Aggregate results from ALL pipeline runs into sheet-ready data\nconst pipelineOutputs = $input.all();\nconst requestInputs = $('Parse New Requests').all();\n\nconst allQueryRows = [];\nconst allCoverageRows = [];\nconst allMetadataRows = [];\nconst summaryParts = [];\nlet totalProcessed = 0;\nlet totalFailed = 0;\n\nfor (let i = 0; i < pipelineOutputs.length; i++) {\n  const output = pipelineOutputs[i].json;\n  const reqMeta = requestInputs[i] ? requestInputs[i].json : {};\n  const company = reqMeta.company || '';\n\n  // Check for execution failure\n  if (output.error || !output.stdout) {\n    totalFailed++;\n    summaryParts.push(\n      `\\u274c #${reqMeta.request_id || '?'} — ${reqMeta.title || '?'} (${company}): Pipeline failed`\n    );\n    continue;\n  }\n\n  let data;\n  try {\n    data = JSON.parse(output.stdout);\n  } catch (e) {\n    totalFailed++;\n    summaryParts.push(\n      `\\u274c #${reqMeta.request_id || '?'}: JSON parse error — ${e.message}`\n    );\n    continue;\n  }\n\n  totalProcessed++;\n  const stats = data.stats || {};\n  const reqId = data.request_id || reqMeta.request_id || '?';\n  const reqTitle = data.request_title || reqMeta.title || 'Unknown';\n\n  // --- Query rows ---\n  for (const q of data.valid_queries || []) {\n    allQueryRows.push({\n      'Request ID': reqId,\n      'Request Title': reqTitle,\n      'Query': q.query,\n      'Result Count': q.result_count,\n      'Category': q.category || '',\n      'Status': 'valid',\n      'SOI Covered': q.target_soi,\n      'Rationale': q.rationale,\n      'Relevance Passed': q.relevance_passed ? 'True' : 'False',\n      'Relevance Details': q.relevance_details || '',\n      'Refinement Round': q.refinement_round || 0,\n      'Original Query': q.original_query || '',\n      'Reviewer Verdict': '',\n      'Reviewer Notes': ''\n    });\n  }\n\n  for (const q of data.unvalidated_queries || []) {\n    allQueryRows.push({\n      'Request ID': reqId,\n      'Request Title': reqTitle,\n      'Query': q.query,\n      'Result Count': '',\n      'Category': '',\n      'Status': 'unvalidated \\u2014 needs manual S2 check',\n      'SOI Covered': q.target_soi,\n      'Rationale': q.rationale,\n      'Relevance Passed': '',\n      'Relevance Details': 'S2 API unreachable during validation',\n      'Refinement Round': q.refinement_round || 0,\n      'Original Query': q.original_query || '',\n      'Reviewer Verdict': '',\n      'Reviewer Notes': ''\n    });\n  }\n\n  // --- Coverage rows ---\n  for (const cov of data.soi_coverage || []) {\n    allCoverageRows.push({\n      'Request ID': reqId,\n      'Request Title': reqTitle,\n      'Solution of Interest': cov.soi,\n      '# Queries': cov.num_queries,\n      'Best Query': cov.best_query,\n      'Best Result Count': cov.best_result_count || 0\n    });\n  }\n\n  // --- Metadata row ---\n  allMetadataRows.push({\n    'Run ID': data.run_id,\n    'Request ID': reqId,\n    'Request Title': reqTitle,\n    'Company': company,\n    'Started At': data.started_at,\n    'Completed At': data.completed_at,\n    'Model Used': data.model_used,\n    'Total Generated': stats.total_generated || 0,\n    'Valid': stats.valid || 0,\n    'Unvalidated': stats.unvalidated || 0,\n    'Rejected Broad': stats.rejected_too_broad || 0,\n    'Rejected Irrelevant': stats.rejected_irrelevant || 0,\n    'SOIs Covered': `${stats.sois_covered || 0}/${stats.sois_total || 0}`\n  });\n\n  // Summary line for Slack\n  const cat = stats.by_category || {};\n  summaryParts.push(\n    `\\u2705 #${reqId} \\u2014 ${reqTitle} (${company})\\n` +\n    `   Valid: ${stats.valid || 0}/${stats.total_generated || 0}` +\n    (stats.unvalidated ? ` (${stats.unvalidated} unvalidated)` : '') +\n    ` | SOIs: ${stats.sois_covered || 0}/${stats.sois_total || 0}` +\n    ` | HS:${cat.highly_specific||0} S:${cat.specific||0} M:${cat.moderate||0} G:${cat.general||0}`\n  );\n}\n\n// Build Slack message\nconst slackMessage = `:mag: *RoboScout Daily Digest*\\n` +\n  `*${totalProcessed} requests processed*` +\n  (totalFailed ? ` (${totalFailed} failed)` : '') +\n  `\\n\\n` +\n  summaryParts.join('\\n') +\n  `\\n\\n:bar_chart: <https://docs.google.com/spreadsheets/d/1MvQXMXLyyNMs2bfWg1JsSRLBfOGVF7Z5nPlj9fED-bU|Review in Google Sheets>`;\n\nreturn [{\n  json: {\n    queryRows: allQueryRows,\n    coverageRows: allCoverageRows,\n    metadataRows: allMetadataRows,\n    slackMessage,\n    totalProcessed,\n    totalFailed\n  }\n}];"
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000006",
+      "name": "Aggregate Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Convert queryRows array into n8n items for Google Sheets append\nconst data = $('Aggregate Results').first().json;\nconst rows = data.queryRows || [];\nif (rows.length === 0) {\n  return $input.all(); // passthrough to keep chain alive\n}\nreturn rows.map(row => ({ json: row }));"
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000007",
+      "name": "Format Query Items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1MvQXMXLyyNMs2bfWg1JsSRLBfOGVF7Z5nPlj9fED-bU",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Queries",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {}
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000008",
+      "name": "Append Queries",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1780, 300],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Convert coverageRows array into n8n items for Google Sheets append\nconst data = $('Aggregate Results').first().json;\nconst rows = data.coverageRows || [];\nif (rows.length === 0) {\n  return $input.all(); // passthrough to keep chain alive\n}\nreturn rows.map(row => ({ json: row }));"
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000009",
+      "name": "Format Coverage Items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 300]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1MvQXMXLyyNMs2bfWg1JsSRLBfOGVF7Z5nPlj9fED-bU",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Coverage",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {}
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000010",
+      "name": "Append Coverage",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [2220, 300],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Convert metadataRows array into n8n items for Google Sheets append\nconst data = $('Aggregate Results').first().json;\nconst rows = data.metadataRows || [];\nif (rows.length === 0) {\n  return $input.all(); // passthrough to keep chain alive\n}\nreturn rows.map(row => ({ json: row }));"
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000011",
+      "name": "Format Metadata Items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2440, 300]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1MvQXMXLyyNMs2bfWg1JsSRLBfOGVF7Z5nPlj9fED-bU",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Run Metadata",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {}
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000012",
+      "name": "Append Metadata",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [2660, 300],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Get the pre-built Slack message from Aggregate Results\nconst data = $('Aggregate Results').first().json;\nreturn [{ json: { message: data.slackMessage } }];"
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000013",
+      "name": "Prepare Slack Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2880, 300]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": {
+          "__rl": true,
+          "value": "C0AJK28CS2H",
+          "mode": "id"
+        },
+        "messageType": "text",
+        "message": "={{ $json.message }}"
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000014",
+      "name": "Slack Notification",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [3100, 300]
+    }
+  ],
+  "connections": {
+    "Daily 6 AM UTC": {
+      "main": [
+        [
+          {
+            "node": "Find New Requests",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find New Requests": {
+      "main": [
+        [
+          {
+            "node": "Parse New Requests",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse New Requests": {
+      "main": [
+        [
+          {
+            "node": "Has New Requests?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has New Requests?": {
+      "main": [
+        [
+          {
+            "node": "Run Pipeline",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Run Pipeline": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Results": {
+      "main": [
+        [
+          {
+            "node": "Format Query Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Query Items": {
+      "main": [
+        [
+          {
+            "node": "Append Queries",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append Queries": {
+      "main": [
+        [
+          {
+            "node": "Format Coverage Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Coverage Items": {
+      "main": [
+        [
+          {
+            "node": "Append Coverage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append Coverage": {
+      "main": [
+        [
+          {
+            "node": "Format Metadata Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Metadata Items": {
+      "main": [
+        [
+          {
+            "node": "Append Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append Metadata": {
+      "main": [
+        [
+          {
+            "node": "Prepare Slack Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Slack Message": {
+      "main": [
+        [
+          {
+            "node": "Slack Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "pinData": {}
+}

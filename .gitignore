@@ -1,0 +1,7 @@
+logs/
+config/.env
+config/*.json
+__pycache__/
+*.pyc
+.DS_Store
+*.gsheet

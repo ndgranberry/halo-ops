@@ -1,0 +1,380 @@
+{
+  "name": "RoboScout Sheets Webhook",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "2c65450c-9070-4e1c-83b7-f05978e44ba0",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "wb-0001-4000-8000-000000000001",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "webhookId": "2c65450c-9070-4e1c-83b7-f05978e44ba0"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// =================================================================\n// Validate & Compute All Rows\n// =================================================================\n// Receives POST body with:\n//   { results: [...], prompt_version: \"baseline\" }\n// Each result has: request_id, title, company, pipeline_output\n// Computes row arrays for all 5 Google Sheets tabs.\n// =================================================================\n\nconst body = $input.first().json.body || $input.first().json;\nconst results = body.results || [];\nconst promptVersion = body.prompt_version || 'baseline';\n\nif (!results.length) {\n  return [{ json: {\n    queryRows: [], coverageRows: [], metadataRows: [],\n    trendsRows: [], feedbackRows: [],\n    error: 'No results in payload'\n  }}];\n}\n\nconst allQueryRows = [];\nconst allCoverageRows = [];\nconst allMetadataRows = [];\nconst allTrendsRows = [];\nconst allFeedbackRows = [];\n\nconst now = new Date();\nconst dateStr = now.toISOString().slice(0, 10);\nconst dateTimeStr = `${dateStr} ${now.toTimeString().slice(0, 5)}`;\n\nfor (const result of results) {\n  const output = result.pipeline_output;\n  if (!output) continue;\n\n  const rid = result.request_id || output.request_id || '';\n  const title = result.title || output.request_title || '';\n  const company = result.company || '';\n  const stats = output.stats || {};\n  const byCat = stats.by_category || {};\n\n  // --- Queries tab ---\n  for (const q of (output.valid_queries || [])) {\n    allQueryRows.push({\n      'Request ID': rid,\n      'Request Title': title,\n      'Company': company,\n      'Query': q.query || '',\n      'Result Count': q.result_count ?? '',\n      'Category': q.category || '',\n      'Status': 'valid',\n      'SOI Covered': q.target_soi || '',\n      'Rationale': q.rationale || '',\n      'Relevance Passed': q.relevance_passed != null ? String(q.relevance_passed) : '',\n      'Relevance Details': q.relevance_details || '',\n      'Refinement Round': q.refinement_round || 0,\n      'Original Query': q.original_query || ''\n    });\n  }\n\n  for (const q of (output.unvalidated_queries || [])) {\n    allQueryRows.push({\n      'Request ID': rid,\n      'Request Title': title,\n      'Company': company,\n      'Query': q.query || '',\n      'Result Count': '',\n      'Category': '',\n      'Status': 'unvalidated',\n      'SOI Covered': q.target_soi || '',\n      'Rationale': q.rationale || '',\n      'Relevance Passed': '',\n      'Relevance Details': 'S2 API unreachable during validation',\n      'Refinement Round': q.refinement_round || 0,\n      'Original Query': q.original_query || ''\n    });\n  }\n\n  // --- Coverage tab ---\n  for (const cov of (output.soi_coverage || [])) {\n    allCoverageRows.push({\n      'Request ID': rid,\n      'Request Title': title,\n      'Solution of Interest': cov.soi || '',\n      '# Queries': cov.num_queries || 0,\n      'Best Query': cov.best_query || '',\n      'Best Result Count': cov.best_result_count || 0\n    });\n  }\n\n  // --- Run Metadata tab ---\n  allMetadataRows.push({\n    'Run ID': output.run_id || '',\n    'Request ID': rid,\n    'Request Title': title,\n    'Company': company,\n    'Started At': output.started_at || '',\n    'Completed At': output.completed_at || '',\n    'Model Used': output.model_used || '',\n    'Total Generated': stats.total_generated || 0,\n    'Valid': stats.valid || 0,\n    'Unvalidated': stats.unvalidated || 0,\n    'Rejected Broad': stats.rejected_too_broad || 0,\n    'Rejected Irrelevant': stats.rejected_irrelevant || 0,\n    'SOIs Covered': `${stats.sois_covered || 0}/${stats.sois_total || 0}`\n  });\n\n  // --- Performance Trends tab ---\n  const total = stats.total_generated || 0;\n  const valid = stats.valid || 0;\n  const validRate = total > 0 ? valid / total : 0;\n  const soisCovered = stats.sois_covered || 0;\n  const soisTotal = stats.sois_total || 0;\n  const coverageRate = soisTotal > 0 ? soisCovered / soisTotal : 0;\n\n  // Count refined + recovery queries\n  const validQueries = output.valid_queries || [];\n  const refinedCount = validQueries.filter(q => (q.refinement_round || 0) > 0).length;\n  const refinementRate = valid > 0 ? refinedCount / valid : 0;\n  const recoveryCount = validQueries.filter(q => q.is_recovery === true).length;\n\n  // Format as \"57.1%\" to match Python's f\"{value:.1%}\" output\n  const fmtPct = (v) => `${(v * 100).toFixed(1)}%`;\n\n  allTrendsRows.push({\n    'Date': dateTimeStr,\n    'Request ID': rid,\n    'Request Title': title,\n    'Company': company,\n    'Total Generated': total,\n    'Valid Queries': valid,\n    'Valid Rate': fmtPct(validRate),\n    'Unvalidated': stats.unvalidated || 0,\n    'Rejected Broad': stats.rejected_too_broad || 0,\n    'Rejected Irrelevant': stats.rejected_irrelevant || 0,\n    'SOIs Covered': soisCovered,\n    'SOIs Total': soisTotal,\n    'Coverage Rate': fmtPct(coverageRate),\n        'Specific': byCat.specific || 0,\n    'Moderate': byCat.moderate || 0,\n    'General': byCat.general || 0,\n    'Refinement Rate': fmtPct(refinementRate),\n    'Recovery Queries': recoveryCount,\n    'Prompt Version': promptVersion\n  });\n\n  // --- Feedback tab ---\n  const querySummary = `${valid} valid / ${total} total, ${soisCovered}/${soisTotal} SOIs`;\n\n  // RUN header row\n  allFeedbackRows.push({\n    'Row Type': 'RUN',\n    'Date': dateStr,\n    'Request ID': rid,\n    'Request Title': title,\n    'Query': querySummary,\n    'SOI': '',\n    'Result Count': '',\n    'Category': '',\n    'Rating': '',\n    'Notes': '',\n    'Suggested Query': '',\n    'Prompt Version': promptVersion,\n    'Processed': ''\n  });\n\n  // Query detail rows\n  for (const q of validQueries) {\n    allFeedbackRows.push({\n      'Row Type': '',\n      'Date': dateStr,\n      'Request ID': rid,\n      'Request Title': '',\n      'Query': q.query || '',\n      'SOI': q.target_soi || '',\n      'Result Count': q.result_count ?? '',\n      'Category': q.category || '',\n      'Rating': '',\n      'Notes': '',\n      'Suggested Query': '',\n      'Prompt Version': promptVersion,\n      'Processed': ''\n    });\n  }\n}\n\nreturn [{ json: {\n  queryRows: allQueryRows,\n  coverageRows: allCoverageRows,\n  metadataRows: allMetadataRows,\n  trendsRows: allTrendsRows,\n  feedbackRows: allFeedbackRows\n}}];"
+      },
+      "id": "wb-0001-4000-8000-000000000002",
+      "name": "Validate & Compute All Rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const data = $('Validate & Compute All Rows').first().json;\nconst rows = data.queryRows || [];\nif (rows.length === 0) {\n  return [{ json: { _empty: true } }];\n}\nreturn rows.map(row => ({ json: row }));"
+      },
+      "id": "wb-0001-4000-8000-000000000003",
+      "name": "Format Query Items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1MvQXMXLyyNMs2bfWg1JsSRLBfOGVF7Z5nPlj9fED-bU",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Queries",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {}
+        },
+        "options": {}
+      },
+      "id": "wb-0001-4000-8000-000000000004",
+      "name": "Append Queries",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        900,
+        300
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const data = $('Validate & Compute All Rows').first().json;\nconst rows = data.coverageRows || [];\nif (rows.length === 0) {\n  return [{ json: { _empty: true } }];\n}\nreturn rows.map(row => ({ json: row }));"
+      },
+      "id": "wb-0001-4000-8000-000000000005",
+      "name": "Format Coverage Items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1MvQXMXLyyNMs2bfWg1JsSRLBfOGVF7Z5nPlj9fED-bU",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Coverage",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {}
+        },
+        "options": {}
+      },
+      "id": "wb-0001-4000-8000-000000000006",
+      "name": "Append Coverage",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1340,
+        300
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const data = $('Validate & Compute All Rows').first().json;\nconst rows = data.metadataRows || [];\nif (rows.length === 0) {\n  return [{ json: { _empty: true } }];\n}\nreturn rows.map(row => ({ json: row }));"
+      },
+      "id": "wb-0001-4000-8000-000000000007",
+      "name": "Format Metadata Items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1MvQXMXLyyNMs2bfWg1JsSRLBfOGVF7Z5nPlj9fED-bU",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Run Metadata",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {}
+        },
+        "options": {}
+      },
+      "id": "wb-0001-4000-8000-000000000008",
+      "name": "Append Metadata",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1780,
+        300
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const data = $('Validate & Compute All Rows').first().json;\nconst rows = data.trendsRows || [];\nif (rows.length === 0) {\n  return [{ json: { _empty: true } }];\n}\nreturn rows.map(row => ({ json: row }));"
+      },
+      "id": "wb-0001-4000-8000-000000000009",
+      "name": "Format Trends Items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2000,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1MvQXMXLyyNMs2bfWg1JsSRLBfOGVF7Z5nPlj9fED-bU",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Performance Trends",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {}
+        },
+        "options": {}
+      },
+      "id": "wb-0001-4000-8000-000000000010",
+      "name": "Append Trends",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2220,
+        300
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const data = $('Validate & Compute All Rows').first().json;\nconst rows = data.feedbackRows || [];\nif (rows.length === 0) {\n  return [{ json: { _empty: true } }];\n}\nreturn rows.map(row => ({ json: row }));"
+      },
+      "id": "wb-0001-4000-8000-000000000011",
+      "name": "Format Feedback Items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1MvQXMXLyyNMs2bfWg1JsSRLBfOGVF7Z5nPlj9fED-bU",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Feedback",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {}
+        },
+        "options": {}
+      },
+      "id": "wb-0001-4000-8000-000000000012",
+      "name": "Append Feedback",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2660,
+        300
+      ],
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate & Compute All Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate & Compute All Rows": {
+      "main": [
+        [
+          {
+            "node": "Format Query Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Query Items": {
+      "main": [
+        [
+          {
+            "node": "Append Queries",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append Queries": {
+      "main": [
+        [
+          {
+            "node": "Format Coverage Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Coverage Items": {
+      "main": [
+        [
+          {
+            "node": "Append Coverage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append Coverage": {
+      "main": [
+        [
+          {
+            "node": "Format Metadata Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Metadata Items": {
+      "main": [
+        [
+          {
+            "node": "Append Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append Metadata": {
+      "main": [
+        [
+          {
+            "node": "Format Trends Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Trends Items": {
+      "main": [
+        [
+          {
+            "node": "Append Trends",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append Trends": {
+      "main": [
+        [
+          {
+            "node": "Format Feedback Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Feedback Items": {
+      "main": [
+        [
+          {
+            "node": "Append Feedback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "pinData": {}
+}
