@@ -120,14 +120,6 @@ class Settings:
         default_factory=lambda: int(os.getenv("ROBOSCOUT_FIND_NEW_TIMEOUT", "120"))
     )
 
-    # Webhooks (max retries for transient failures)
-    webhook_max_retries: int = field(
-        default_factory=lambda: int(os.getenv("ROBOSCOUT_WEBHOOK_MAX_RETRIES", "3"))
-    )
-    webhook_backoff_seconds: float = field(
-        default_factory=lambda: float(os.getenv("ROBOSCOUT_WEBHOOK_BACKOFF", "2.0"))
-    )
-
     # Logging
     log_json: bool = field(
         default_factory=lambda: os.getenv("ROBOSCOUT_LOG_JSON", "").lower()

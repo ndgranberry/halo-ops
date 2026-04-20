@@ -81,13 +81,9 @@ def run_all_checks() -> Tuple[bool, List[str]]:
 
 
 def format_health_alert(issues: List[str]) -> str:
-    """Format health issues as a Slack alert message."""
-    lines = [
-        ":rotating_light: *RoboScout health check failed*",
-        "",
-    ]
+    """Format health issues as a multi-line warning string for the log."""
+    lines = ["RoboScout health check failed:"]
     for issue in issues:
         lines.append(f"  - {issue}")
-    lines.append("")
     lines.append("The daily run may fail or produce incomplete results.")
     return "\n".join(lines)

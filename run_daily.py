@@ -6,9 +6,6 @@ Runs locally on any team member's machine (or via macOS LaunchAgent).
 1. Finds new requests from Snowflake
 2. Runs the query generation pipeline for each
 3. Appends results directly to Google Sheets
-4. Sends Slack notification
-
-No n8n required — everything runs locally.
 
 Usage:
     # Auto-discover new requests from last 24h
@@ -20,11 +17,8 @@ Usage:
     # Run for specific request IDs
     python run_daily.py --request-ids 1597 1600 1582
 
-    # Dry run (pipeline only, skip Sheets + Slack)
+    # Dry run (pipeline only, skip Sheets)
     python run_daily.py --dry-run
-
-    # Skip Slack notification only
-    python run_daily.py --no-slack
 """
 
 import argparse
@@ -33,17 +27,13 @@ import logging
 import os
 import subprocess
 import sys
-import time
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 # Centralized env loading + tunables (see config.py).
 from config import ConfigError, load_env, settings
 
 load_env()
-
-import requests
 
 from logging_setup import (
     configure_logging,
@@ -57,7 +47,6 @@ PYTHON = sys.executable
 PROJECT_DIR = Path(__file__).parent
 
 SHEET_URL = settings.sheet_url
-SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
 
 LOG_DIR = PROJECT_DIR / "logs"
 LOG_DIR.mkdir(exist_ok=True)
@@ -426,130 +415,11 @@ def _append_metadata(sh, output: dict, rid, title, company):
 
 
 # =============================================================================
-# HTTP POST helper (used by Slack notifications)
-# =============================================================================
-
-def _post_with_retry(
-    url: str, payload: dict, *, label: str, timeout: int = 60
-) -> Optional[requests.Response]:
-    """POST with exponential backoff. Returns the Response on success or None."""
-    if not url:
-        return None
-    last_err: Optional[str] = None
-    for attempt in range(settings.webhook_max_retries):
-        try:
-            resp = requests.post(
-                url,
-                json=payload,
-                timeout=timeout,
-                headers={"Content-Type": "application/json"},
-            )
-        except requests.RequestException as e:
-            last_err = f"{type(e).__name__}: {e}"
-            logger.warning(
-                "%s POST attempt %d failed: %s",
-                label, attempt + 1, last_err,
-            )
-        else:
-            if resp.status_code < 500 and resp.status_code != 429:
-                return resp  # 2xx/3xx/4xx (non-retryable) — hand back to caller
-            last_err = f"HTTP {resp.status_code}: {resp.text[:200]}"
-            logger.warning(
-                "%s returned %d (attempt %d/%d)",
-                label, resp.status_code, attempt + 1, settings.webhook_max_retries,
-            )
-        if attempt + 1 < settings.webhook_max_retries:
-            time.sleep(settings.webhook_backoff_seconds * (2 ** attempt))
-    logger.error("%s: exhausted %d retries. Last: %s",
-                 label, settings.webhook_max_retries, last_err)
-    return None
-
-
-# =============================================================================
-# Slack notification
-# =============================================================================
-
-def send_slack_notification(all_results: list, request_list: list) -> bool:
-    """Send a summary notification to Slack via webhook."""
-    if not SLACK_WEBHOOK_URL:
-        logger.warning("SLACK_WEBHOOK_URL not set — skipping Slack notification")
-        return False
-
-    processed = [r for r in all_results if "pipeline_output" in r]
-    failed = [r for r in all_results if "error" in r]
-
-    # Build summary
-    lines = [
-        f":robot_face: *RoboScout Daily Run — {datetime.now().strftime('%Y-%m-%d %H:%M')}*",
-        f"Discovered *{len(request_list)}* new requests | "
-        f"*{len(processed)}* succeeded | *{len(failed)}* failed",
-        "",
-    ]
-
-    # Per-request details
-    for result in all_results:
-        rid = result.get("request_id", "?")
-        title = result.get("title", "")
-        company = result.get("company", "")
-
-        if "pipeline_output" in result:
-            stats = result["pipeline_output"].get("stats", {})
-            valid = stats.get("valid", 0)
-            total = stats.get("total_generated", 0)
-            sois = f"{stats.get('sois_covered', 0)}/{stats.get('sois_total', 0)}"
-            lines.append(
-                f":white_check_mark: *#{rid}* {title} ({company}) — "
-                f"{valid}/{total} valid queries, {sois} SOIs covered"
-            )
-        else:
-            error_snippet = result.get("error", "Unknown error")[:100]
-            lines.append(
-                f":x: *#{rid}* {title} ({company}) — FAILED: {error_snippet}"
-            )
-
-    # Sheet link
-    if SHEET_URL:
-        lines.append("")
-        lines.append(f":bar_chart: <{SHEET_URL}|View in Google Sheets>")
-
-    payload = {
-        "text": "\n".join(lines),
-        "unfurl_links": False,
-    }
-
-    resp = _post_with_retry(
-        SLACK_WEBHOOK_URL, payload, label="Slack notification", timeout=30
-    )
-    if resp is not None and resp.status_code == 200:
-        logger.info("Slack notification sent")
-        return True
-    if resp is not None:
-        logger.warning("Slack returned %d: %s",
-                       resp.status_code, resp.text[:200])
-    return False
-
-
-def _send_slack_alert(message: str) -> bool:
-    """Send a standalone alert message to Slack (with retry)."""
-    resp = _post_with_retry(
-        SLACK_WEBHOOK_URL,
-        {"text": message, "unfurl_links": False},
-        label="Slack alert",
-        timeout=30,
-    )
-    return resp is not None and resp.status_code == 200
-
-
-# =============================================================================
-# Direct gspread write (used when n8n webhook is not configured or as fallback)
+# Direct gspread write — the only write path
 # =============================================================================
 
 def _direct_sheets_write(sh, processed: list, prompt_version: str):
-    """Write to all 5 Sheets tabs directly via gspread.
-
-    This is the original write path, now extracted into a helper so it can
-    be used as a fallback when the n8n webhook is unavailable.
-    """
+    """Write to all 5 Sheets tabs directly via gspread."""
     append_to_sheets(processed)
 
     # Append performance metrics
@@ -582,16 +452,14 @@ def _direct_sheets_write(sh, processed: list, prompt_version: str):
 
 def _parse_args():
     parser = argparse.ArgumentParser(
-        description="RoboScout Daily Runner — pipeline + Sheets + Slack, all local"
+        description="RoboScout Daily Runner — pipeline + direct Sheets write"
     )
     parser.add_argument("--hours", type=int, default=24,
                         help="Lookback window for new requests (default: 24)")
     parser.add_argument("--request-ids", type=int, nargs="+",
                         help="Run specific request IDs instead of auto-discovery")
     parser.add_argument("--dry-run", action="store_true",
-                        help="Run pipelines but don't write to Sheets or send Slack")
-    parser.add_argument("--no-slack", action="store_true",
-                        help="Skip Slack notification")
+                        help="Run pipelines but don't write to Sheets")
     parser.add_argument("--no-sheets", action="store_true",
                         help="Skip Google Sheets append")
     parser.add_argument("--optimize", action="store_true",
@@ -620,10 +488,7 @@ def _run(args):
     from monitoring.health_check import format_health_alert, run_all_checks
     health_ok, health_issues = run_all_checks()
     if not health_ok:
-        alert = format_health_alert(health_issues)
-        logger.warning(alert)
-        if not (args.dry_run or args.no_slack):
-            _send_slack_alert(alert)
+        logger.warning(format_health_alert(health_issues))
 
     # Step 0.5: Check for approved prompt candidates
     prompt_version = "baseline"
@@ -695,20 +560,14 @@ def _run(args):
             sh = _get_gspread_client().open_by_url(SHEET_URL)
             _direct_sheets_write(sh, processed, prompt_version)
 
-            # Quality-degradation alert — reads the just-written metrics.
+            # Quality-degradation check — logs a warning if metrics dropped.
             from monitoring.metrics_tracker import MetricsTracker
             tracker = MetricsTracker(sh, prompt_version=prompt_version)
             degradation = tracker.check_quality_degradation()
-            if degradation and not args.no_slack:
-                _send_slack_alert(degradation)
+            if degradation:
+                logger.warning("Quality degradation detected: %s", degradation)
         except Exception:
             logger.exception("Google Sheets / monitoring failed")
-
-    # Step 5: Send Slack notification
-    if args.dry_run or args.no_slack:
-        logger.info("Skipping Slack notification")
-    else:
-        send_slack_notification(all_results, request_list)
 
     logger.info("=== Done ===")
 

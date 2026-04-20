@@ -5,8 +5,8 @@ RoboScout Monitoring — Metrics Tracker
 Collects quality metrics from each pipeline run and appends them to a
 "Performance Trends" tab in the Google Sheet.
 
-Detects quality degradation over a rolling 7-day window and triggers
-Slack alerts when thresholds are breached.
+Detects quality degradation over a rolling 7-day window and returns a
+warning string (logged by run_daily) when thresholds are breached.
 """
 
 import logging
