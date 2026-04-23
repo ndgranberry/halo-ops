@@ -17,6 +17,7 @@ The optimizer:
 import argparse
 import json
 import logging
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -31,8 +32,8 @@ LOGS_DIR = PROJECT_DIR / "optimization" / "logs"
 
 def run_optimization(
     budget: str = "medium",
-    task_model: str = "anthropic/claude-sonnet-4-20250514",
-    reflection_model: str = "anthropic/claude-opus-4-20250514",
+    task_model: str = os.getenv("GEPA_TASK_MODEL", "anthropic/claude-sonnet-4-20250514"),
+    reflection_model: str = os.getenv("GEPA_REFLECTION_MODEL", "anthropic/claude-sonnet-4-20250514"),
     save_as_candidate: bool = True,
 ) -> dict:
     """Run GEPA optimization on the query generation pipeline.
