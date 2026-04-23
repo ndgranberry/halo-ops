@@ -1,6 +1,9 @@
-# Agent Scout — Claude Code Guide
+# Halo Ops — Claude Code Guide
 
-Agent Scout finds and scores research/innovation contacts for Halo partnering requests. It runs on a Hetzner server and is triggered via HTTP.
+Two tools running on a Hetzner server, both triggered via HTTP from Claude Code.
+
+- **Agent Scout** — finds, scores, and enriches contacts for partnering requests
+- **RoboScout Query Gen** — generates Semantic Scholar search queries for RoboScout
 
 ## Server
 
@@ -8,7 +11,49 @@ Agent Scout finds and scores research/innovation contacts for Halo partnering re
 
 Check health: `curl http://46.224.159.126:8000/health`
 
-## Triggering a Run
+---
+
+## RoboScout Query Gen
+
+### Trigger a run
+
+```bash
+curl -s -X POST http://46.224.159.126:8000/run-roboscout \
+  -H "Content-Type: application/json" \
+  -d '{"request_id": 1664, "output_csv": "/tmp/roboscout_1664.csv"}'
+```
+
+### Manual input (no Snowflake ID)
+
+```bash
+curl -s -X POST http://46.224.159.126:8000/run-roboscout \
+  -H "Content-Type: application/json" \
+  -d '{
+    "looking_for": "Researchers in precision fermentation of dairy proteins",
+    "use_case": "Replace animal-derived casein in cheese applications",
+    "sois": "Microbial strain engineering, bioprocess optimization",
+    "output_csv": "/tmp/test.csv"
+  }'
+```
+
+### Check progress
+
+```bash
+# List all runs
+curl -s http://46.224.159.126:8000/logs
+
+# Tail last 50 lines of a specific run
+curl -s http://46.224.159.126:8000/logs/roboscout_1664.log
+
+# Tail last 100 lines
+curl -s "http://46.224.159.126:8000/logs/roboscout_1664.log?lines=100"
+```
+
+---
+
+## Agent Scout
+
+### Triggering a Run
 
 Send a POST to `/run`. The server starts the job in the background and returns a `pid` immediately — the job keeps running after the curl exits.
 
@@ -88,3 +133,9 @@ curl -s -X POST http://46.224.159.126:8000/run \
 Results are written to the specified Google Sheet with columns: name, title, company, email, LinkedIn, fit score, score rationale, enrichment status.
 
 Run state is saved in `.scout_state/` on the server — if a run fails partway through, resume it with the `run_id` from the response.
+
+### Check Agent Scout progress
+
+```bash
+curl -s http://46.224.159.126:8000/logs/scout_1582.log
+```
