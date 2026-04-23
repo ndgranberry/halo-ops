@@ -13,8 +13,8 @@ app = FastAPI()
 PYTHON = str(Path(sys.executable))
 # Use module invocation so relative imports resolve correctly within packages.
 # Scripts are run as: python -m agent_scout.agent_scout [args]
-SCRIPT_SCOUT = str(Path(__file__).parent / "agent_scout" / "agent_scout.py")
-SCRIPT_ROBOSCOUT = str(Path(__file__).parent / "roboscout" / "roboscout_query_gen.py")
+SCRIPT_SCOUT = ["-m", "agent_scout.agent_scout"]
+SCRIPT_ROBOSCOUT = ["-m", "roboscout.roboscout_query_gen"]
 ROOT_DIR = str(Path(__file__).parent)
 
 
@@ -43,7 +43,7 @@ class ResumeRequest(BaseModel):
 
 @app.post("/run")
 def run(req: RunRequest):
-    cmd = [PYTHON, SCRIPT_SCOUT]
+    cmd = [PYTHON] + SCRIPT_SCOUT
 
     if req.resume:
         cmd += ["--resume", req.resume]
@@ -101,7 +101,7 @@ class RoboScoutRequest(BaseModel):
 
 @app.post("/run-roboscout")
 def run_roboscout(req: RoboScoutRequest):
-    cmd = [PYTHON, SCRIPT_ROBOSCOUT]
+    cmd = [PYTHON] + SCRIPT_ROBOSCOUT
 
     if req.request_id:
         cmd += ["--request-id", str(req.request_id)]
