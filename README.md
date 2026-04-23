@@ -11,6 +11,40 @@ Both tools share the same credentials, Snowflake connection, and Google Sheets a
 
 ---
 
+## Using with Claude Code
+
+The fastest way to work with these tools is via Claude Code. Once set up, you can trigger runs, check progress, and get results in plain English — no CLI knowledge needed.
+
+### Setup (one time)
+
+1. **Clone the repo**
+   ```bash
+   git clone https://github.com/ndgranberry/halo-ops.git
+   cd halo-ops
+   ```
+
+2. **Open in Claude Code**
+   ```bash
+   claude .
+   ```
+   Claude Code will automatically load `CLAUDE.md`, giving it full context about both tools and how to trigger runs.
+
+3. **Get credentials from Neil** — you need a `.env` file and `google_service_account.json` placed in the repo root. Ask Neil to share these via 1Password.
+
+### Triggering runs
+
+Just describe what you want in Claude Code:
+
+> *"Run Agent Scout for request 1664 and output to this Google Sheet: [url]"*
+
+> *"Generate RoboScout queries for request 1655"*
+
+> *"Check the progress of the last RoboScout run"*
+
+Claude Code will translate your request into the right curl command using the server at `46.224.159.126:8000`. You don't need to know the API — just describe the task.
+
+---
+
 # Agent Scout
 
 AI-powered lead discovery and scoring pipeline for Halo Science. Automatically finds, enriches, scores, and deduplicates potential innovation partners for corporate partnering requests.
