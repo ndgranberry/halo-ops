@@ -5,10 +5,14 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+LOGS_DIR = Path(__file__).parent / "run_logs"
+LOGS_DIR.mkdir(exist_ok=True)
+
 app = FastAPI()
 
 PYTHON = str(Path(sys.executable))
-SCRIPT = str(Path(__file__).parent / "agent_scout.py")
+SCRIPT_SCOUT = str(Path(__file__).parent / "agent_scout.py")
+SCRIPT_ROBOSCOUT = str(Path(__file__).parent / "roboscout_query_gen.py")
 
 
 class RunRequest(BaseModel):
@@ -71,14 +75,69 @@ def run(req: RunRequest):
         if req.min_score is not None:
             cmd += ["--min-score", str(req.min_score)]
 
-    proc = subprocess.Popen(
-        cmd,
-        cwd=str(Path(__file__).parent),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-    )
+    log_file = LOGS_DIR / f"scout_{req.request_id or 'manual'}.log"
+    with open(log_file, "w") as f:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(Path(__file__).parent),
+            stdout=f,
+            stderr=subprocess.STDOUT,
+        )
 
-    return {"status": "started", "pid": proc.pid, "cmd": " ".join(cmd)}
+    return {"status": "started", "pid": proc.pid, "log": str(log_file), "cmd": " ".join(cmd)}
+
+
+class RoboScoutRequest(BaseModel):
+    request_id: Optional[int] = None
+    looking_for: Optional[str] = None
+    use_case: Optional[str] = None
+    sois: Optional[str] = None
+    output_sheet: Optional[str] = None
+    output_csv: Optional[str] = None
+
+
+@app.post("/run-roboscout")
+def run_roboscout(req: RoboScoutRequest):
+    cmd = [PYTHON, SCRIPT_ROBOSCOUT]
+
+    if req.request_id:
+        cmd += ["--request-id", str(req.request_id)]
+    if req.looking_for:
+        cmd += ["--looking-for", req.looking_for]
+    if req.use_case:
+        cmd += ["--use-case", req.use_case]
+    if req.sois:
+        cmd += ["--sois", req.sois]
+    if req.output_sheet:
+        cmd += ["--output-sheet", req.output_sheet]
+    if req.output_csv:
+        cmd += ["--output-csv", req.output_csv]
+
+    log_file = LOGS_DIR / f"roboscout_{req.request_id or 'manual'}.log"
+    with open(log_file, "w") as f:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(Path(__file__).parent),
+            stdout=f,
+            stderr=subprocess.STDOUT,
+        )
+
+    return {"status": "started", "pid": proc.pid, "log": str(log_file), "cmd": " ".join(cmd)}
+
+
+@app.get("/logs/{filename}")
+def get_logs(filename: str, lines: int = 50):
+    log_file = LOGS_DIR / filename
+    if not log_file.exists():
+        raise HTTPException(status_code=404, detail="Log file not found")
+    all_lines = log_file.read_text().splitlines()
+    return {"file": filename, "total_lines": len(all_lines), "lines": all_lines[-lines:]}
+
+
+@app.get("/logs")
+def list_logs():
+    files = sorted(LOGS_DIR.glob("*.log"), key=lambda f: f.stat().st_mtime, reverse=True)
+    return {"logs": [f.name for f in files]}
 
 
 @app.get("/health")
