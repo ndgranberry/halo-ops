@@ -18,6 +18,7 @@ import logging
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+import threading
 from typing import List, Dict, Any, Optional
 
 from exa_py import Exa
@@ -31,8 +32,38 @@ from .prompts import (
 
 logger = logging.getLogger(__name__)
 
-# Rate limit: 1 second between Exa API calls
+# Rate limit: 1 second between Exa API calls (per-thread fallback)
 EXA_RATE_LIMIT_SECONDS = 1.0
+
+
+class _GlobalRateLimiter:
+    """Token-bucket rate limiter shared across all worker threads.
+
+    Exa's published cap is 10 req/s. We target 9 req/s for safety margin.
+    Each thread must acquire a slot before calling Exa; if the bucket is
+    empty, the thread blocks until a slot is available.
+    """
+
+    def __init__(self, max_per_second: int = 9):
+        self.max_per_second = max_per_second
+        self._lock = threading.Lock()
+        self._timestamps: List[float] = []
+
+    def acquire(self) -> None:
+        while True:
+            with self._lock:
+                now = time.monotonic()
+                # Drop timestamps older than 1 second
+                self._timestamps = [t for t in self._timestamps if now - t < 1.0]
+                if len(self._timestamps) < self.max_per_second:
+                    self._timestamps.append(now)
+                    return
+                # Bucket full — wait until the oldest timestamp ages out
+                wait = 1.0 - (now - self._timestamps[0])
+            time.sleep(max(0.01, wait))
+
+
+_exa_rate_limiter = _GlobalRateLimiter(max_per_second=9)
 
 # Domain-include lists used by the solve-plan-driven angle tracks.
 # Patents are a strong commercial-intent signal for industrial / chemical
@@ -665,6 +696,9 @@ class ExaDiscovery:
         if category in ("people", "research paper"):
             include_domains = None
             exclude_domains = None
+
+        # Global rate limiter — blocks until a slot is available
+        _exa_rate_limiter.acquire()
 
         try:
             kwargs = {
