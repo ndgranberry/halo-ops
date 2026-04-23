@@ -65,7 +65,8 @@ cat > "$PLIST_DEST" << PLIST
     <key>ProgramArguments</key>
     <array>
         <string>$PYTHON_PATH</string>
-        <string>$SCRIPT_DIR/run_daily.py</string>
+        <string>-m</string>
+        <string>roboscout.run_daily</string>
     </array>
 
     <key>WorkingDirectory</key>
@@ -121,7 +122,7 @@ echo "  # Check if it's loaded"
 echo "  launchctl list | grep roboscout"
 echo ""
 echo "  # Run it now (for testing)"
-echo "  python $SCRIPT_DIR/run_daily.py --dry-run"
+echo "  python -m roboscout.run_daily --dry-run"
 echo ""
 echo "  # Uninstall"
 echo "  launchctl unload $PLIST_DEST"

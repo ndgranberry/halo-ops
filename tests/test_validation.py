@@ -15,9 +15,9 @@ Scenarios covered:
 
 from unittest.mock import MagicMock
 
-from models_roboscout import GeneratedQuery, QueryCategory, QueryRequest
-from modules import QueryValidationModule
-from semantic_scholar import S2Result, S2Status
+from roboscout.models import GeneratedQuery, QueryCategory, QueryRequest
+from roboscout.modules import QueryValidationModule
+from roboscout.semantic_scholar import S2Result, S2Status
 
 
 def _ok(total, papers=None):

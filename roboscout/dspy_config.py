@@ -10,7 +10,7 @@ from pathlib import Path
 
 import dspy
 
-from config import settings
+from .config import settings
 
 logger = logging.getLogger("roboscout_query_gen.dspy_config")
 

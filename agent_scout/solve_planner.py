@@ -21,9 +21,9 @@ phrasing.
 import logging
 from typing import Any, Dict, Optional
 
-from claude_client import ClaudeClient
-from models_scout import ScoutConfig
-from prompts import (
+from .claude_client import ClaudeClient
+from .models import ScoutConfig
+from .prompts import (
     SOLVE_PLAN_SYSTEM,
     SOLVE_PLAN_USER,
     GENERATE_SOLVE_PLAN_TOOL,

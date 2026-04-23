@@ -17,7 +17,7 @@ from unittest.mock import MagicMock
 import pytest
 import requests
 
-from semantic_scholar import S2Status, SemanticScholarClient
+from roboscout.semantic_scholar import S2Status, SemanticScholarClient
 
 
 def _fake_response(status_code: int, body=""):

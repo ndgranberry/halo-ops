@@ -28,9 +28,9 @@ from typing import List, Dict, Any, Optional
 
 import requests
 
-from claude_client import ClaudeClient
-from models_scout import ScoutLead, ScoutConfig, InputType, LeadStatus, deduplicate_leads
-from prompts import (
+from .claude_client import ClaudeClient
+from .models import ScoutLead, ScoutConfig, InputType, LeadStatus, deduplicate_leads
+from .prompts import (
     PERSON_SPEC_SYSTEM, PERSON_SPEC_USER,
     EXAMPLE_PATTERNS_CONTEXT, SEARCH_CRITERIA_FROM_REQUEST,
     CONTACT_RESOLUTION_SYSTEM, CONTACT_RESOLUTION_USER,
@@ -658,7 +658,7 @@ class PersonDiscovery:
         Tags leads with halo_domain_count and can pre-set already_on_halo.
         """
         try:
-            from snowflake_client import find_halo_users_by_domain
+            from shared.snowflake_client import find_halo_users_by_domain
         except ImportError:
             logger.warning("snowflake_client not available — skipping domain check")
             return

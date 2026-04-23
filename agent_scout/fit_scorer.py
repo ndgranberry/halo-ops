@@ -14,15 +14,15 @@ import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Optional, Dict, Any
 
-from claude_client import ClaudeClient, build_cached_user_blocks
-from models_scout import ScoutLead, ScoutConfig, LeadStatus
-from taxonomy import DISCIPLINES, AREAS_OF_EXPERTISE
-from prompts import (
+from .claude_client import ClaudeClient, build_cached_user_blocks
+from .models import ScoutLead, ScoutConfig, LeadStatus
+from .taxonomy import DISCIPLINES, AREAS_OF_EXPERTISE
+from .prompts import (
     FIT_SCORING_SYSTEM,
     FIT_SCORING_USER_PREFIX, FIT_SCORING_USER_CANDIDATE,
     FIT_SCORING_EXAMPLES_SECTION, FIT_SCORING_PATTERNS_SECTION,
 )
-from prompt_store import get_active_prompt
+from .prompt_store import get_active_prompt
 
 logger = logging.getLogger(__name__)
 

@@ -7,7 +7,7 @@ Specifically:
 import json
 import subprocess
 
-import run_daily
+import roboscout.run_daily as run_daily
 
 
 def test_timeout_writes_failure_marker(tmp_path, monkeypatch):

@@ -17,8 +17,8 @@ from urllib.parse import urlparse
 
 import requests
 
-from models_scout import ScoutLead, LeadStatus
-from domain_resolver import DomainResolver
+from .models import ScoutLead, LeadStatus
+from .domain_resolver import DomainResolver
 
 logger = logging.getLogger(__name__)
 

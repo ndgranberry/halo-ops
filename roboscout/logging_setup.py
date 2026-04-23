@@ -30,7 +30,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from config import settings
+from .config import settings
 
 _run_id_var: contextvars.ContextVar[str] = contextvars.ContextVar(
     "roboscout_run_id", default=""

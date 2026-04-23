@@ -28,6 +28,7 @@ logger = logging.getLogger("roboscout_optimization.optimize")
 PROJECT_DIR = Path(__file__).parent.parent
 PROMPTS_DIR = PROJECT_DIR / "optimization" / "prompts"
 LOGS_DIR = PROJECT_DIR / "optimization" / "logs"
+# Note: PROJECT_DIR = roboscout/ — optimization/ is now a subpackage of roboscout/
 
 
 def run_optimization(
@@ -56,8 +57,8 @@ def run_optimization(
     dspy.configure(lm=task_lm)
 
     # Build training data
-    from optimization.build_examples import build_all_examples
-    from optimization.metrics import query_generation_metric
+    from roboscout.optimization.build_examples import build_all_examples
+    from roboscout.optimization.metrics import query_generation_metric
 
     examples = build_all_examples()
     if len(examples) < 3:
@@ -77,7 +78,7 @@ def run_optimization(
     )
 
     # Create module
-    from modules import QueryGenerationModule
+    from roboscout.modules import QueryGenerationModule
     module = QueryGenerationModule()
 
     # Run GEPA

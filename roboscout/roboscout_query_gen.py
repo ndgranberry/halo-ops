@@ -26,23 +26,23 @@ import sys
 from datetime import datetime
 
 # Centralized env loading + settings (see config.py).
-from config import ConfigError, load_env, settings, validate_for
+from .config import ConfigError, load_env, settings, validate_for
 
 load_env()
 
-from dspy_config import configure_lm, load_active_prompt
-from logging_setup import (
+from .dspy_config import configure_lm, load_active_prompt
+from .logging_setup import (
     configure_logging,
     current_run_id,
     inherit_run_id_from_env,
     new_run_id,
     set_run_id,
 )
-from models_roboscout import QueryRequest, QueryRun
-from modules import RoboScoutPipeline
-from output_formatter import OutputFormatter
-from request_loader import RequestLoader
-from semantic_scholar import SemanticScholarClient
+from .models import QueryRequest, QueryRun
+from .modules import RoboScoutPipeline
+from agent_scout.output_formatter import OutputFormatter
+from .request_loader import RequestLoader
+from .semantic_scholar import SemanticScholarClient
 
 configure_logging()
 inherit_run_id_from_env()

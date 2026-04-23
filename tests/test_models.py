@@ -7,7 +7,7 @@ logic either ships or rejects the query based on this label.
 
 import pytest
 
-from models_roboscout import QueryCategory
+from roboscout.models import QueryCategory
 
 
 @pytest.mark.parametrize(

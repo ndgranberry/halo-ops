@@ -44,14 +44,14 @@ from typing import List
 
 from dotenv import load_dotenv
 
-from models_scout import ScoutLead, ScoutConfig, ScoutRun, InputType, LeadStatus, deduplicate_leads
-from input_parser import InputParser
-from person_discovery import PersonDiscovery
-from exa_discovery import ExaDiscovery
-from enrichment import ContactEnricher
-from academic_enrichment import AcademicEnricher
-from fit_scorer import FitScorer
-from output_formatter import OutputFormatter
+from .models import ScoutLead, ScoutConfig, ScoutRun, InputType, LeadStatus, deduplicate_leads
+from .input_parser import InputParser
+from .person_discovery import PersonDiscovery
+from .exa_discovery import ExaDiscovery
+from .enrichment import ContactEnricher
+from .academic_enrichment import AcademicEnricher
+from .fit_scorer import FitScorer
+from .output_formatter import OutputFormatter
 
 # Load .env if present
 load_dotenv(override=True)
@@ -312,7 +312,7 @@ class AgentScout:
             return
 
         try:
-            from snowflake_client import check_emails_on_halo
+            from shared.snowflake_client import check_emails_on_halo
             results = check_emails_on_halo([l.email for l in leads_with_email])
 
             on_halo_emails = {
@@ -342,7 +342,7 @@ class AgentScout:
             return
 
         try:
-            from snowflake_client import get_request_company
+            from shared.snowflake_client import get_request_company
             req_co = get_request_company(self.config.request_id)
         except Exception as e:
             logger.warning(f"Requester screen: lookup failed ({e}) — skipping")

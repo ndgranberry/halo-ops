@@ -12,12 +12,13 @@
         <!-- IMPORTANT: Update this path to your Python interpreter -->
         <!-- Find it by running: which python3 (or the path from your venv) -->
         <string>/usr/local/bin/python3</string>
-        <string>/Users/ndgranberry/Library/CloudStorage/GoogleDrive-neil@halo.science/Shared drives/Halo Company Drive/Claude_Halo_Workspace/projects/roboscout_query_gen/run_daily.py</string>
+        <string>-m</string>
+        <string>roboscout.run_daily</string>
     </array>
 
-    <!-- Working directory -->
+    <!-- Working directory: project root (parent of roboscout/) -->
     <key>WorkingDirectory</key>
-    <string>/Users/ndgranberry/Library/CloudStorage/GoogleDrive-neil@halo.science/Shared drives/Halo Company Drive/Claude_Halo_Workspace/projects/roboscout_query_gen</string>
+    <string>/Users/ndgranberry/Library/CloudStorage/GoogleDrive-neil@halo.science/Shared drives/Halo Company Drive/Claude_Halo_Workspace/projects/agent_scout</string>
 
     <!-- Schedule: run daily at 6:00 AM local time -->
     <key>StartCalendarInterval</key>
@@ -37,9 +38,9 @@
 
     <!-- Stdout/stderr logging -->
     <key>StandardOutPath</key>
-    <string>/Users/ndgranberry/Library/CloudStorage/GoogleDrive-neil@halo.science/Shared drives/Halo Company Drive/Claude_Halo_Workspace/projects/roboscout_query_gen/logs/launchagent_stdout.log</string>
+    <string>/Users/ndgranberry/Library/CloudStorage/GoogleDrive-neil@halo.science/Shared drives/Halo Company Drive/Claude_Halo_Workspace/projects/agent_scout/roboscout/logs/launchagent_stdout.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/ndgranberry/Library/CloudStorage/GoogleDrive-neil@halo.science/Shared drives/Halo Company Drive/Claude_Halo_Workspace/projects/roboscout_query_gen/logs/launchagent_stderr.log</string>
+    <string>/Users/ndgranberry/Library/CloudStorage/GoogleDrive-neil@halo.science/Shared drives/Halo Company Drive/Claude_Halo_Workspace/projects/agent_scout/roboscout/logs/launchagent_stderr.log</string>
 
     <!-- If machine was asleep at scheduled time, run when it wakes up -->
     <!-- Note: StartCalendarInterval automatically catches up on missed runs -->

@@ -11,8 +11,11 @@ LOGS_DIR.mkdir(exist_ok=True)
 app = FastAPI()
 
 PYTHON = str(Path(sys.executable))
-SCRIPT_SCOUT = str(Path(__file__).parent / "agent_scout.py")
-SCRIPT_ROBOSCOUT = str(Path(__file__).parent / "roboscout_query_gen.py")
+# Use module invocation so relative imports resolve correctly within packages.
+# Scripts are run as: python -m agent_scout.agent_scout [args]
+SCRIPT_SCOUT = str(Path(__file__).parent / "agent_scout" / "agent_scout.py")
+SCRIPT_ROBOSCOUT = str(Path(__file__).parent / "roboscout" / "roboscout_query_gen.py")
+ROOT_DIR = str(Path(__file__).parent)
 
 
 class RunRequest(BaseModel):
@@ -40,7 +43,7 @@ class ResumeRequest(BaseModel):
 
 @app.post("/run")
 def run(req: RunRequest):
-    cmd = [PYTHON, SCRIPT]
+    cmd = [PYTHON, SCRIPT_SCOUT]
 
     if req.resume:
         cmd += ["--resume", req.resume]

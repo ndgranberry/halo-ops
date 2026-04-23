@@ -16,7 +16,7 @@ from collections import Counter
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict, Any
 
-from models_scout import ScoutLead, ScoutConfig, InputType, LeadStatus
+from .models import ScoutLead, ScoutConfig, InputType, LeadStatus
 
 logger = logging.getLogger(__name__)
 
@@ -383,7 +383,7 @@ class InputParser:
     def _load_request_from_snowflake(self):
         """Load request context from Snowflake OPS_REQUESTS_DATA."""
         try:
-            from snowflake_client import get_request_data
+            from shared.snowflake_client import get_request_data
             request = get_request_data(self.config.request_id)
             self.config.request_title = request.get("TITLE", "")
             self.config.request_looking_for = request.get("LOOKING_FOR", "")

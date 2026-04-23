@@ -3,7 +3,7 @@
 
 import pytest
 
-from config import (
+from roboscout.config import (
     ConfigError,
     Settings,
     _parse_int_list,

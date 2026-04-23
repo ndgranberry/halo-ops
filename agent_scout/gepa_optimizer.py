@@ -19,14 +19,14 @@ from typing import List, Dict, Any, Optional, Tuple
 import dspy
 from dspy import GEPA, Example
 
-from dspy_fit_scorer import (
+from .dspy_fit_scorer import (
     DSPyFitScorer,
     format_request_context,
     format_candidate_profile,
     parse_score,
 )
-from prompt_store import save_prompt, activate_version, save_baseline, get_active_prompt
-from prompts import FIT_SCORING_SYSTEM
+from .prompt_store import save_prompt, activate_version, save_baseline, get_active_prompt
+from .prompts import FIT_SCORING_SYSTEM
 
 logger = logging.getLogger(__name__)
 

@@ -29,7 +29,7 @@ The fastest way to work with these tools is via Claude Code. Once set up, you ca
    ```
    Claude Code will automatically load `CLAUDE.md`, giving it full context about both tools and how to trigger runs.
 
-3. **Get credentials from Neil** — you need a `.env` file and `google_service_account.json` placed in the repo root. Ask Neil to share these via 1Password.
+3. **No credentials needed** — all API keys live on the server. Claude Code talks to the server via HTTP, so you can trigger runs without any local setup.
 
 ### Triggering runs
 

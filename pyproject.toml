@@ -21,7 +21,7 @@ filterwarnings = [
 [tool.ruff]
 line-length = 100
 target-version = "py39"
-exclude = ["_legacy", "logs", "optimization/prompts", "optimization/auto_optimize.py", "optimization/metrics.py"]
+exclude = ["_legacy", "logs", "roboscout/optimization/prompts", "roboscout/optimization/auto_optimize.py", "roboscout/optimization/metrics.py"]
 
 [tool.ruff.lint]
 select = [
@@ -46,5 +46,5 @@ ignore = [
 "tests/*" = ["B011"]  # allow asserts in tests
 # Entry points intentionally call load_env() before other imports so env
 # vars are available when modules initialize their module-level state.
-"roboscout_query_gen.py" = ["E402"]
-"run_daily.py" = ["E402"]
+"roboscout/roboscout_query_gen.py" = ["E402"]
+"roboscout/run_daily.py" = ["E402"]

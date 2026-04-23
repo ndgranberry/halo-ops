@@ -31,11 +31,11 @@ from datetime import datetime
 from pathlib import Path
 
 # Centralized env loading + tunables (see config.py).
-from config import ConfigError, load_env, settings
+from .config import ConfigError, load_env, settings
 
 load_env()
 
-from logging_setup import (
+from .logging_setup import (
     configure_logging,
     export_run_id_to_env,
     new_run_id,
@@ -44,7 +44,9 @@ from logging_setup import (
 
 # --- Config ---
 PYTHON = sys.executable
+# roboscout/ subdir; root is one level up
 PROJECT_DIR = Path(__file__).parent
+ROOT_DIR = PROJECT_DIR.parent
 
 SHEET_URL = settings.sheet_url
 
@@ -67,9 +69,9 @@ def find_new_requests(hours: int = 24) -> dict:
     logger.info(f"Finding new requests (last {hours}h)...")
     try:
         result = subprocess.run(
-            [PYTHON, "roboscout_query_gen.py", "--find-new",
+            [PYTHON, "-m", "roboscout.roboscout_query_gen", "--find-new",
              "--hours", str(hours), "--output-json"],
-            capture_output=True, text=True, cwd=PROJECT_DIR,
+            capture_output=True, text=True, cwd=ROOT_DIR,
             timeout=settings.find_new_timeout,
             env=export_run_id_to_env(os.environ),
         )
@@ -125,11 +127,11 @@ def run_pipeline(request_id: int) -> dict:
     timeout = settings.per_request_timeout
     try:
         result = subprocess.run(
-            [PYTHON, "roboscout_query_gen.py",
+            [PYTHON, "-m", "roboscout.roboscout_query_gen",
              "--request-id", str(request_id),
              "--output-json", str(json_path)],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, cwd=PROJECT_DIR,
+            text=True, cwd=ROOT_DIR,
             timeout=timeout,
             env=export_run_id_to_env(os.environ),
         )
@@ -209,7 +211,7 @@ def run_pipeline(request_id: int) -> dict:
 
 def _get_gspread_client():
     """Create authenticated gspread client (delegates to shared factory)."""
-    from sheets_client import get_client
+    from shared.sheets_client import get_client
     return get_client()
 
 
@@ -423,7 +425,7 @@ def _direct_sheets_write(sh, processed: list, prompt_version: str):
     append_to_sheets(processed)
 
     # Append performance metrics
-    from monitoring.metrics_tracker import MetricsTracker
+    from .monitoring.metrics_tracker import MetricsTracker
     tracker = MetricsTracker(sh, prompt_version=prompt_version)
     for result in processed:
         output = result["pipeline_output"]
@@ -435,7 +437,7 @@ def _direct_sheets_write(sh, processed: list, prompt_version: str):
         )
 
     # Populate Feedback tab for manager review
-    from monitoring.feedback_sheet import FeedbackSheet as FBSheet
+    from .monitoring.feedback_sheet import FeedbackSheet as FBSheet
     fb = FBSheet(sh)
     fb.setup_feedback_tab()
     for result in processed:
@@ -478,14 +480,14 @@ def _run(args):
 
     # Manual optimization mode
     if args.optimize:
-        from optimization.optimize import run_optimization
+        from .optimization.optimize import run_optimization
         logger.info("Running manual GEPA optimization...")
         results = run_optimization(budget="medium")
         logger.info(f"Optimization result: {results.get('status')}")
         return
 
     # Step 0: Health check
-    from monitoring.health_check import format_health_alert, run_all_checks
+    from .monitoring.health_check import format_health_alert, run_all_checks
     health_ok, health_issues = run_all_checks()
     if not health_ok:
         logger.warning(format_health_alert(health_issues))
@@ -493,13 +495,13 @@ def _run(args):
     # Step 0.5: Check for approved prompt candidates
     prompt_version = "baseline"
     try:
-        from monitoring.feedback_sheet import FeedbackSheet
+        from .monitoring.feedback_sheet import FeedbackSheet
         gc = _get_gspread_client()
         sh = gc.open_by_url(SHEET_URL)
         feedback_mgr = FeedbackSheet(sh)
         approval = feedback_mgr.check_pending_approval()
         if approval["status"] == "approved":
-            from optimization.optimize import promote_candidate
+            from .optimization.optimize import promote_candidate
             if promote_candidate():
                 prompt_version = "optimized"
                 logger.info("Promoted approved prompt candidate to active")
@@ -561,7 +563,7 @@ def _run(args):
             _direct_sheets_write(sh, processed, prompt_version)
 
             # Quality-degradation check — logs a warning if metrics dropped.
-            from monitoring.metrics_tracker import MetricsTracker
+            from .monitoring.metrics_tracker import MetricsTracker
             tracker = MetricsTracker(sh, prompt_version=prompt_version)
             degradation = tracker.check_quality_degradation()
             if degradation:
