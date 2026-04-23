@@ -40,9 +40,16 @@ def configure_lm(
     if max_tokens is None:
         max_tokens = settings.lm_max_tokens
 
-    lm = dspy.LM(model, temperature=temperature, max_tokens=max_tokens)
+    extra = {}
+    thinking_level = settings.lm_thinking_level
+    if thinking_level:
+        extra["thinking"] = {"type": "enabled", "budget_tokens": {
+            "minimal": 512, "low": 1024, "medium": 4096, "high": 8192
+        }.get(thinking_level, 1024)}
+
+    lm = dspy.LM(model, temperature=temperature, max_tokens=max_tokens, **extra)
     dspy.configure(lm=lm)
-    logger.info(f"DSPy configured: model={model}, temperature={temperature}")
+    logger.info(f"DSPy configured: model={model}, temperature={temperature}, thinking={thinking_level or 'off'}")
     return lm
 
 

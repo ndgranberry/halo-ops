@@ -100,6 +100,9 @@ class Settings:
     lm_max_tokens: int = field(
         default_factory=lambda: int(os.getenv("ROBOSCOUT_LM_MAX_TOKENS", "4096"))
     )
+    lm_thinking_level: str = field(
+        default_factory=lambda: os.getenv("ROBOSCOUT_THINKING_LEVEL", "")
+    )
 
     # Validation thresholds
     max_refinement_rounds: int = field(
