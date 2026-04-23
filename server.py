@@ -1,8 +1,11 @@
+import os
+import signal
 import subprocess
 import sys
 from pathlib import Path
 from typing import Optional
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 LOGS_DIR = Path(__file__).parent / "run_logs"
@@ -186,6 +189,93 @@ def processes():
         text=True,
     )
     return {"processes": result.stdout.strip().splitlines()}
+
+
+OUTPUT_DIRS = [Path("/tmp"), Path(ROOT_DIR) / "output"]
+
+
+@app.get("/output/{filename}")
+def get_output(filename: str):
+    """Download a result file from /tmp or the output directory."""
+    if "/" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    for d in OUTPUT_DIRS:
+        path = d / filename
+        if path.exists() and path.is_file():
+            return FileResponse(path, filename=filename)
+    raise HTTPException(status_code=404, detail="File not found")
+
+
+@app.get("/output")
+def list_outputs():
+    """List CSV files in known output locations."""
+    files = []
+    for d in OUTPUT_DIRS:
+        if d.exists():
+            for p in d.glob("*.csv"):
+                files.append({
+                    "name": p.name,
+                    "path": str(p),
+                    "size_bytes": p.stat().st_size,
+                    "modified": p.stat().st_mtime,
+                })
+    files.sort(key=lambda f: f["modified"], reverse=True)
+    return {"outputs": files}
+
+
+@app.post("/restart")
+def restart():
+    """Restart the FastAPI service via systemd. The endpoint returns before the
+    kill signal arrives; systemd auto-restarts the unit."""
+    subprocess.Popen(["systemctl", "restart", "agent-scout"])
+    return {"status": "restarting"}
+
+
+@app.get("/config")
+def config():
+    """Return the server's model configuration and key presence (no values)."""
+    keys_to_check = [
+        "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY",
+        "EXA_API_KEY", "APOLLO_API_KEY", "SEMANTIC_SCHOLAR_API_KEY",
+        "SNOWFLAKE_USER", "SNOWFLAKE_PASSWORD",
+        "N8N_ENRICHMENT_WEBHOOK_URL", "GOOGLE_SERVICE_ACCOUNT_JSON",
+    ]
+    models = [
+        "SCOUT_SCORE_MODEL", "SCOUT_PLANNER_MODEL",
+        "ROBOSCOUT_MODEL", "ROBOSCOUT_THINKING_LEVEL",
+        "GEPA_TASK_MODEL", "GEPA_REFLECTION_MODEL",
+    ]
+    git_result = subprocess.run(
+        ["git", "log", "-1", "--oneline"],
+        cwd=ROOT_DIR, capture_output=True, text=True,
+    )
+    return {
+        "commit": git_result.stdout.strip(),
+        "keys_set": {k: bool(os.getenv(k)) for k in keys_to_check},
+        "models": {k: os.getenv(k) for k in models},
+    }
+
+
+@app.get("/status/{pid}")
+def status(pid: int):
+    """Check whether a PID is still running."""
+    try:
+        os.kill(pid, 0)
+        return {"pid": pid, "status": "running"}
+    except ProcessLookupError:
+        return {"pid": pid, "status": "not_running"}
+    except PermissionError:
+        return {"pid": pid, "status": "running"}  # exists, owned by another user
+
+
+@app.delete("/logs")
+def clear_logs():
+    """Delete all log files in run_logs/."""
+    deleted = []
+    for f in LOGS_DIR.glob("*.log"):
+        f.unlink()
+        deleted.append(f.name)
+    return {"deleted": deleted}
 
 
 @app.post("/pull")

@@ -23,6 +23,42 @@ curl -X POST http://46.224.159.126:8000/pull
 
 The server also auto-pulls every 5 minutes via cron, so `/pull` is only needed for urgent changes.
 
+### Operational endpoints
+
+```bash
+# Inspect server config — shows git commit, which models are configured,
+# which API keys are present (true/false, not values)
+curl -s http://46.224.159.126:8000/config
+
+# List running scout/roboscout processes
+curl -s http://46.224.159.126:8000/processes
+
+# Check if a specific PID is still running
+curl -s http://46.224.159.126:8000/status/3247
+
+# Kill a specific process
+curl -X POST http://46.224.159.126:8000/kill/3247
+
+# Kill all running scout/roboscout jobs
+curl -X POST http://46.224.159.126:8000/kill-all
+
+# Restart the FastAPI service (picks up server.py changes)
+curl -X POST http://46.224.159.126:8000/restart
+
+# Clear all old log files
+curl -X DELETE http://46.224.159.126:8000/logs
+```
+
+### Output files
+
+```bash
+# List recent output CSVs
+curl -s http://46.224.159.126:8000/output
+
+# Download a specific output file
+curl -s http://46.224.159.126:8000/output/metallic_flake_test.csv -o result.csv
+```
+
 ---
 
 ## RoboScout Query Gen
