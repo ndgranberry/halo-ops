@@ -15,7 +15,7 @@ Scenarios covered:
 
 from unittest.mock import MagicMock
 
-from models import GeneratedQuery, QueryCategory, QueryRequest
+from models_roboscout import GeneratedQuery, QueryCategory, QueryRequest
 from modules import QueryValidationModule
 from semantic_scholar import S2Result, S2Status
 

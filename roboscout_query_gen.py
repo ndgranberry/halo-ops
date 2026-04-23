@@ -38,7 +38,7 @@ from logging_setup import (
     new_run_id,
     set_run_id,
 )
-from models import QueryRequest, QueryRun
+from models_roboscout import QueryRequest, QueryRun
 from modules import RoboScoutPipeline
 from output_formatter import OutputFormatter
 from request_loader import RequestLoader

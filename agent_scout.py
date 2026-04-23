@@ -44,7 +44,7 @@ from typing import List
 
 from dotenv import load_dotenv
 
-from models import ScoutLead, ScoutConfig, ScoutRun, InputType, LeadStatus, deduplicate_leads
+from models_scout import ScoutLead, ScoutConfig, ScoutRun, InputType, LeadStatus, deduplicate_leads
 from input_parser import InputParser
 from person_discovery import PersonDiscovery
 from exa_discovery import ExaDiscovery

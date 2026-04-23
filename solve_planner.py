@@ -22,7 +22,7 @@ import logging
 from typing import Any, Dict, Optional
 
 from claude_client import ClaudeClient
-from models import ScoutConfig
+from models_scout import ScoutConfig
 from prompts import (
     SOLVE_PLAN_SYSTEM,
     SOLVE_PLAN_USER,

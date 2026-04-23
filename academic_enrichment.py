@@ -20,7 +20,7 @@ from typing import List, Optional, Dict, Any
 
 import requests
 
-from models import ScoutLead
+from models_scout import ScoutLead
 
 logger = logging.getLogger(__name__)
 

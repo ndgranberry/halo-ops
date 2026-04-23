@@ -20,7 +20,7 @@ import dspy
 
 from config import settings
 from logging_setup import timed_stage
-from models import GeneratedQuery, QueryCategory, QueryRequest, SOICoverage
+from models_roboscout import GeneratedQuery, QueryCategory, QueryRequest, SOICoverage
 from signatures import (
     CheckRelevance,
     GenerateQueries,

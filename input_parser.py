@@ -16,7 +16,7 @@ from collections import Counter
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict, Any
 
-from models import ScoutLead, ScoutConfig, InputType, LeadStatus
+from models_scout import ScoutLead, ScoutConfig, InputType, LeadStatus
 
 logger = logging.getLogger(__name__)
 

@@ -29,7 +29,7 @@ from typing import List, Dict, Any, Optional
 import requests
 
 from claude_client import ClaudeClient
-from models import ScoutLead, ScoutConfig, InputType, LeadStatus, deduplicate_leads
+from models_scout import ScoutLead, ScoutConfig, InputType, LeadStatus, deduplicate_leads
 from prompts import (
     PERSON_SPEC_SYSTEM, PERSON_SPEC_USER,
     EXAMPLE_PATTERNS_CONTEXT, SEARCH_CRITERIA_FROM_REQUEST,

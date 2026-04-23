@@ -23,7 +23,7 @@ from typing import List, Dict, Any, Optional
 from exa_py import Exa
 
 from claude_client import ClaudeClient
-from models import ScoutLead, ScoutConfig, LeadStatus, deduplicate_leads
+from models_scout import ScoutLead, ScoutConfig, LeadStatus, deduplicate_leads
 from prompts import (
     EXA_QUERY_GENERATION, EXA_QUERY_GENERATION_INDUSTRY, EXA_RESULT_EXTRACTION,
     PERSON_SPEC_SYSTEM, BLURB_SYNTHESIS_SYSTEM, BLURB_SYNTHESIS_USER,

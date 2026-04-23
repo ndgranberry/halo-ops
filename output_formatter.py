@@ -21,7 +21,7 @@ import os
 from datetime import datetime
 from typing import List, Optional
 
-from models import ScoutLead, ScoutConfig, InputType
+from models_scout import ScoutLead, ScoutConfig, InputType
 
 logger = logging.getLogger(__name__)
 

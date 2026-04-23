@@ -12,7 +12,7 @@ import re
 from typing import List
 
 from config import settings
-from models import QueryRequest
+from models_roboscout import QueryRequest
 
 logger = logging.getLogger("roboscout_query_gen.request_loader")
 

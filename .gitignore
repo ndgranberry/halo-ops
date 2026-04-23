@@ -1,8 +1,37 @@
-logs/
-config/.env
-config/*.json
+# Secrets
+.env
+google_service_account.json
+
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# macOS
 .DS_Store
+
+# Scout runtime state
+.scout_state/
+
+# Output data
+output/
+feedback_data/
+
+# Google Drive stubs
+*.gdoc
+
+# Claude local config
+.claude/settings.local.json
+
+# Logs
+logs/
+*.log
+
+# Misc
 *.gsheet
-.claude/
