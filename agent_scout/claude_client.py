@@ -18,6 +18,11 @@ from typing import Any, Dict, List, Optional, Union
 
 import litellm
 
+# Suppress LiteLLM's verbose INFO logging and ANSI color codes that corrupt log files
+litellm.suppress_debug_info = True
+logging.getLogger("LiteLLM").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
 
 
