@@ -1,0 +1,90 @@
+# Agent Scout — Claude Code Guide
+
+Agent Scout finds and scores research/innovation contacts for Halo partnering requests. It runs on a Hetzner server and is triggered via HTTP.
+
+## Server
+
+**Base URL:** `http://46.224.159.126:8000`
+
+Check health: `curl http://46.224.159.126:8000/health`
+
+## Triggering a Run
+
+Send a POST to `/run`. The server starts the job in the background and returns a `pid` immediately — the job keeps running after the curl exits.
+
+### By Snowflake request ID (most common)
+
+```bash
+curl -s -X POST http://46.224.159.126:8000/run \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "request_with_examples",
+    "request_id": 1582,
+    "input_sheet": "https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID",
+    "sheet_tab": "Scientists and Startups",
+    "output_sheet": "https://docs.google.com/spreadsheets/d/YOUR_OUTPUT_SHEET_ID"
+  }'
+```
+
+### By description (no Snowflake ID)
+
+```bash
+curl -s -X POST http://46.224.159.126:8000/run \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "partnering_request",
+    "request_looking_for": "Researchers in precision fermentation of dairy proteins",
+    "request_use_case": "Replace animal-derived casein in cheese applications",
+    "request_sois": "Microbial strain engineering, bioprocess optimization",
+    "output_sheet": "https://docs.google.com/spreadsheets/d/YOUR_OUTPUT_SHEET_ID"
+  }'
+```
+
+### By company list
+
+```bash
+curl -s -X POST http://46.224.159.126:8000/run \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "company_list",
+    "companies": "Novozymes,Ginkgo Bioworks,Zymergen",
+    "request_looking_for": "Bioprocess engineers",
+    "output_sheet": "https://docs.google.com/spreadsheets/d/YOUR_OUTPUT_SHEET_ID"
+  }'
+```
+
+### Resume a failed run
+
+```bash
+curl -s -X POST http://46.224.159.126:8000/run \
+  -H "Content-Type: application/json" \
+  -d '{"type": "partnering_request", "resume": "scout_20260421_093022"}'
+```
+
+## Input Types
+
+| type | When to use |
+|------|-------------|
+| `partnering_request` | You have a request description but no example leads |
+| `request_with_examples` | Google Sheet with example leads + request context |
+| `scraped_list` | CSV of pre-scraped leads to score and enrich |
+| `company_list` | List of companies — agent discovers contacts at each |
+
+## Key Parameters
+
+| Parameter | Description |
+|-----------|-------------|
+| `request_id` | Snowflake request ID — pulls all context automatically |
+| `request_looking_for` | Plain text description of who they want |
+| `request_use_case` | What the partner wants to do |
+| `request_sois` | Solutions of interest (comma-separated) |
+| `input_sheet` | Google Sheet URL with example leads |
+| `sheet_tab` | Tab name in the input sheet |
+| `output_sheet` | Google Sheet URL to write results to |
+| `min_score` | Minimum fit score to include (default 0.3, range 0-1) |
+
+## Output
+
+Results are written to the specified Google Sheet with columns: name, title, company, email, LinkedIn, fit score, score rationale, enrichment status.
+
+Run state is saved in `.scout_state/` on the server — if a run fails partway through, resume it with the `run_id` from the response.
