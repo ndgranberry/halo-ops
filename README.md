@@ -43,6 +43,36 @@ Just describe what you want in Claude Code:
 
 Claude Code will translate your request into the right curl command using the server at `46.224.159.126:8000`. You don't need to know the API — just describe the task.
 
+### Updating the code
+
+The server auto-pulls from GitHub every 5 minutes, so any change merged to `main` will be live on the server within 5 minutes — no manual deployment needed.
+
+**To make a change via Claude Code:**
+
+1. Describe the change in plain English:
+   > *"Update the fit score threshold default from 0.3 to 0.4"*
+
+2. Claude Code will edit the file, commit, and push to GitHub.
+
+3. Wait ~5 minutes for the server's cron job to pull, or ask Claude Code:
+   > *"Force the server to pull the latest code now"*
+
+**When changes require a server restart:**
+
+Most changes (prompts, scoring logic, query generation) take effect on the next run automatically — no restart needed, because each run spawns a fresh Python subprocess.
+
+The only change that requires a restart is modifying `server.py` itself (the FastAPI service). In that case, ask Claude Code:
+
+> *"Restart the agent-scout service on the server"*
+
+**How to know if the server has your change:**
+
+```
+"Check the git log on the server and tell me the latest commit"
+```
+
+Claude Code will SSH or use an API call to verify the server is on the same commit as GitHub.
+
 ---
 
 # Agent Scout

@@ -146,3 +146,31 @@ def list_logs():
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.post("/pull")
+def pull():
+    """Force a git pull so changes merged to main are picked up without waiting for cron."""
+    result = subprocess.run(
+        ["git", "pull"],
+        cwd=ROOT_DIR,
+        capture_output=True,
+        text=True,
+    )
+    return {
+        "returncode": result.returncode,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+    }
+
+
+@app.get("/version")
+def version():
+    """Return the current git commit on the server."""
+    result = subprocess.run(
+        ["git", "log", "-1", "--oneline"],
+        cwd=ROOT_DIR,
+        capture_output=True,
+        text=True,
+    )
+    return {"commit": result.stdout.strip()}

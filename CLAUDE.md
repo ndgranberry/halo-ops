@@ -11,6 +11,18 @@ Two tools running on a Hetzner server, both triggered via HTTP from Claude Code.
 
 Check health: `curl http://46.224.159.126:8000/health`
 
+### Deployment endpoints
+
+```bash
+# Check what commit the server is running
+curl http://46.224.159.126:8000/version
+
+# Force a git pull (after pushing to GitHub)
+curl -X POST http://46.224.159.126:8000/pull
+```
+
+The server also auto-pulls every 5 minutes via cron, so `/pull` is only needed for urgent changes.
+
 ---
 
 ## RoboScout Query Gen
