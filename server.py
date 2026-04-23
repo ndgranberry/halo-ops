@@ -148,6 +148,46 @@ def health():
     return {"status": "ok"}
 
 
+@app.post("/kill/{pid}")
+def kill(pid: int):
+    """Kill a specific process by PID."""
+    try:
+        import os as _os
+        import signal
+        _os.kill(pid, signal.SIGTERM)
+        return {"killed": pid}
+    except ProcessLookupError:
+        return {"error": f"PID {pid} not found", "killed": None}
+    except Exception as e:
+        return {"error": str(e), "killed": None}
+
+
+@app.post("/kill-all")
+def kill_all():
+    """Kill all running scout and roboscout subprocesses."""
+    result = subprocess.run(
+        ["pkill", "-f", "-e", "agent_scout.agent_scout|roboscout.roboscout_query_gen"],
+        capture_output=True,
+        text=True,
+    )
+    return {
+        "returncode": result.returncode,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+    }
+
+
+@app.get("/processes")
+def processes():
+    """List currently running scout/roboscout processes."""
+    result = subprocess.run(
+        ["pgrep", "-af", "agent_scout.agent_scout|roboscout.roboscout_query_gen"],
+        capture_output=True,
+        text=True,
+    )
+    return {"processes": result.stdout.strip().splitlines()}
+
+
 @app.post("/pull")
 def pull():
     """Force a git pull so changes merged to main are picked up without waiting for cron."""
