@@ -200,7 +200,7 @@ class AgentScout:
             logger.info("Solve planner: no request context to plan from — skipping")
             return
 
-        from solve_planner import SolvePlanner
+        from .solve_planner import SolvePlanner
         planner = SolvePlanner(self.config)
         plan = planner.plan()
         if not plan:

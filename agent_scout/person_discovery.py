@@ -164,7 +164,7 @@ class PersonDiscovery:
         self.exa_discovery = None
         if "exa" in config.discovery_sources:
             try:
-                from exa_discovery import ExaDiscovery
+                from .exa_discovery import ExaDiscovery
                 self.exa_discovery = ExaDiscovery(config)
                 logger.info("Exa discovery initialized")
             except Exception as e:
@@ -413,7 +413,7 @@ class PersonDiscovery:
 
         Modifies leads in place and returns them.
         """
-        from account_targeter import AccountTargeter
+        from .account_targeter import AccountTargeter
 
         targeter = AccountTargeter()
 
@@ -582,7 +582,7 @@ class PersonDiscovery:
 
     def _default_person_spec(self, company: str = "") -> Dict[str, Any]:
         """Fallback person spec using smart targeting rules."""
-        from account_targeter import AccountTargeter
+        from .account_targeter import AccountTargeter
         targeter = AccountTargeter()
         targeting = targeter.get_targeting(company)
 
