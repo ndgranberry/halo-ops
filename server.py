@@ -13,8 +13,8 @@ app = FastAPI()
 PYTHON = str(Path(sys.executable))
 # Use module invocation so relative imports resolve correctly within packages.
 # Scripts are run as: python -m agent_scout.agent_scout [args]
-SCRIPT_SCOUT = ["-m", "agent_scout.agent_scout"]
-SCRIPT_ROBOSCOUT = ["-m", "roboscout.roboscout_query_gen"]
+SCRIPT_SCOUT = ["-u", "-m", "agent_scout.agent_scout"]
+SCRIPT_ROBOSCOUT = ["-u", "-m", "roboscout.roboscout_query_gen"]
 ROOT_DIR = str(Path(__file__).parent)
 
 
