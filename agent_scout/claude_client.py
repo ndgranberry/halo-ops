@@ -20,6 +20,8 @@ import litellm
 
 # Suppress LiteLLM's verbose INFO logging and ANSI color codes that corrupt log files
 litellm.suppress_debug_info = True
+# Silently drop params that a given provider doesn't support (e.g. `thinking` for Gemini)
+litellm.drop_params = True
 logging.getLogger("LiteLLM").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 

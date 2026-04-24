@@ -9,6 +9,10 @@ import logging
 from pathlib import Path
 
 import dspy
+import litellm
+
+# Silently drop params a given provider doesn't support (e.g. `thinking` on Gemini)
+litellm.drop_params = True
 
 from .config import settings
 
