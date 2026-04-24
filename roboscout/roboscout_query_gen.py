@@ -22,6 +22,7 @@ Usage:
 
 import argparse
 import logging
+import os
 import sys
 from datetime import datetime
 
@@ -248,11 +249,16 @@ def main():
     # Run pipeline
     pipeline = RoboScoutQueryGen(model=args.model)
 
+    # Default output_sheet to ROBOSCOUT_SHEET_URL if not explicitly passed
+    output_sheet = args.output_sheet or os.getenv("ROBOSCOUT_SHEET_URL")
+    if output_sheet and not args.output_sheet:
+        logger.info(f"Using default output sheet from ROBOSCOUT_SHEET_URL: {output_sheet}")
+
     try:
         pipeline.run(
             request=request,
             output_csv=args.output_csv,
-            output_sheet=args.output_sheet,
+            output_sheet=output_sheet,
             output_json=args.output_json,
         )
     except KeyboardInterrupt:
