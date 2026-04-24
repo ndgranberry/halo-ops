@@ -40,7 +40,7 @@ from .logging_setup import (
 )
 from .models import QueryRequest, QueryRun
 from .modules import RoboScoutPipeline
-from agent_scout.output_formatter import OutputFormatter
+from .output_formatter import OutputFormatter
 from .request_loader import RequestLoader
 from .semantic_scholar import SemanticScholarClient
 

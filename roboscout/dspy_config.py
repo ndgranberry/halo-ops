@@ -34,7 +34,10 @@ def configure_lm(
     """
     # Fall back to settings (env-overridable) when explicit args are not supplied.
     if model is None:
-        model = f"anthropic/{settings.default_model}"
+        model = settings.default_model
+        # Add anthropic/ prefix only if no provider prefix is present
+        if "/" not in model:
+            model = f"anthropic/{model}"
     if temperature is None:
         temperature = settings.lm_temperature
     if max_tokens is None:
