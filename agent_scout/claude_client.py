@@ -137,7 +137,7 @@ class ClaudeClient:
                     {"role": "system", "content": system},
                     {"role": "user", "content": self._user_to_string(user)},
                 ],
-                timeout=120,
+                timeout=300,
             )
             self._record_call(response)
 

@@ -77,9 +77,9 @@ class SolvePlanner:
         executor = ThreadPoolExecutor(max_workers=1)
         future = executor.submit(_call)
         try:
-            plan = future.result(timeout=150)
+            plan = future.result(timeout=360)
         except FuturesTimeoutError:
-            logger.error("SolvePlanner: API call timed out after 150s — skipping solve plan")
+            logger.error("SolvePlanner: API call timed out after 360s — skipping solve plan")
             executor.shutdown(wait=False)
             return None
         finally:
