@@ -75,6 +75,75 @@ Claude Code will SSH or use an API call to verify the server is on the same comm
 
 ---
 
+## Server API Reference
+
+The FastAPI server at `http://46.224.159.126:8000` exposes these endpoints. Claude Code will pick the right one based on your request, but they're documented here for reference.
+
+### Running jobs
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/run` | POST | Trigger an Agent Scout run |
+| `/run-roboscout` | POST | Trigger a RoboScout query generation run |
+
+### Monitoring
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/health` | GET | Simple up/down check |
+| `/version` | GET | Current git commit on the server |
+| `/config` | GET | Active model config and which API keys are set |
+| `/processes` | GET | List running scout/roboscout subprocesses |
+| `/status/{pid}` | GET | Is a specific PID still running |
+| `/logs` | GET | List all log files |
+| `/logs/{filename}` | GET | Tail a log file (default 50 lines, add `?lines=N`) |
+
+### Managing jobs
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/kill/{pid}` | POST | Stop a specific job by PID |
+| `/kill-all` | POST | Stop all running scout/roboscout jobs |
+
+### Managing outputs
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/output` | GET | List result CSVs on the server |
+| `/output/{filename}` | GET | Download a result file |
+| `/logs` | DELETE | Clear all old log files |
+
+### Deployment
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/pull` | POST | Force a git pull (otherwise auto-pulls every 5 min) |
+| `/restart` | POST | Restart the FastAPI service (needed only for `server.py` changes) |
+
+### Quick reference — most common commands
+
+```bash
+# Check server is alive
+curl http://46.224.159.126:8000/health
+
+# See what models it's using
+curl -s http://46.224.159.126:8000/config
+
+# Trigger a run
+curl -X POST http://46.224.159.126:8000/run -H "Content-Type: application/json" \
+  -d '{"type":"partnering_request","request_id":1664,"output_sheet":"..."}'
+
+# Check progress
+curl -s http://46.224.159.126:8000/logs/scout_1664.log
+
+# Download results
+curl -s http://46.224.159.126:8000/output/result.csv -o result.csv
+```
+
+See [CLAUDE.md](CLAUDE.md) for full payload schemas and examples.
+
+---
+
 # Agent Scout
 
 AI-powered lead discovery and scoring pipeline for Halo Science. Automatically finds, enriches, scores, and deduplicates potential innovation partners for corporate partnering requests.
