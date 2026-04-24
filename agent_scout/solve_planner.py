@@ -19,6 +19,7 @@ phrasing.
 """
 
 import logging
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from typing import Any, Dict, Optional
 
 from .claude_client import ClaudeClient
@@ -64,13 +65,21 @@ class SolvePlanner:
             f"for '{self.config.request_title}'"
         )
 
-        plan = self.claude.call_with_tools(
-            system=SOLVE_PLAN_SYSTEM,
-            user=user,
-            tools=[GENERATE_SOLVE_PLAN_TOOL],
-            tool_choice={"type": "tool", "name": "generate_solve_plan"},
-            max_tokens=self.config.solve_plan_max_tokens,
-        )
+        def _call():
+            return self.claude.call_with_tools(
+                system=SOLVE_PLAN_SYSTEM,
+                user=user,
+                tools=[GENERATE_SOLVE_PLAN_TOOL],
+                tool_choice={"type": "tool", "name": "generate_solve_plan"},
+                max_tokens=self.config.solve_plan_max_tokens,
+            )
+
+        try:
+            with ThreadPoolExecutor(max_workers=1) as ex:
+                plan = ex.submit(_call).result(timeout=150)
+        except FuturesTimeoutError:
+            logger.error("SolvePlanner: API call timed out after 150s — skipping solve plan")
+            return None
 
         if not plan or "angles" not in plan:
             logger.error("SolvePlanner: Claude did not return a valid plan")

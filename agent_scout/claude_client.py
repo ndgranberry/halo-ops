@@ -137,7 +137,7 @@ class ClaudeClient:
                     {"role": "system", "content": system},
                     {"role": "user", "content": self._user_to_string(user)},
                 ],
-                request_timeout=120,
+                timeout=120,
             )
             self._record_call(response)
 
@@ -185,7 +185,7 @@ class ClaudeClient:
             if converted_choice:
                 kwargs["tool_choice"] = converted_choice
 
-            kwargs["request_timeout"] = 120
+            kwargs["timeout"] = 120
             response = litellm.completion(**kwargs)
             self._record_call(response)
 
