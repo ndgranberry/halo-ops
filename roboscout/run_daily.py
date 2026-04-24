@@ -322,7 +322,7 @@ def _append_queries(sh, output: dict, rid, title, company):
         "SOI Covered", "Rationale", "Relevance Passed",
         "Relevance Details", "Refinement Round", "Original Query",
     ]
-    ws = _get_or_create_worksheet(sh, "Queries", headers)
+    ws = _get_or_create_worksheet(sh, "Query", headers)
     _dedup_rows_for_request(ws, rid)
 
     rows = []

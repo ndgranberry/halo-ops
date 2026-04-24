@@ -135,35 +135,32 @@ class OutputFormatter:
         return output_path
 
     def write_sheets(self, run: QueryRun, sheet_url: str) -> str:
-        """Write results to Google Sheets."""
-        import gspread
-        from google.oauth2.service_account import Credentials
+        """Write results to Google Sheets using the same append-based format
+        as run_daily.py — populates Query, Coverage, Run Metadata, Performance
+        Trends, and Feedback tabs. Appends (doesn't overwrite) so ad-hoc runs
+        and daily runs share the same tab structure."""
+        from .run_daily import _direct_sheets_write, _get_gspread_client
+        from . import run_daily as rd
 
-        creds_path = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
-        if not creds_path:
-            raise ValueError("GOOGLE_SERVICE_ACCOUNT_JSON not set")
+        data = run.to_full_dict()
+        result = {
+            "request_id": run.request_id or data.get("request_id", ""),
+            "title": data.get("request_title", ""),
+            "company": "",  # not tracked in QueryRun
+            "pipeline_output": data,
+        }
 
-        scopes = [
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive",
-        ]
-        creds = Credentials.from_service_account_file(creds_path, scopes=scopes)
-        gc = gspread.authorize(creds)
-        sh = gc.open_by_url(sheet_url)
+        # Temporarily point run_daily at the caller's sheet URL
+        _orig = rd.SHEET_URL
+        rd.SHEET_URL = sheet_url
+        try:
+            gc = _get_gspread_client()
+            sh = gc.open_by_url(sheet_url)
+            _direct_sheets_write(sh, [result], prompt_version=data.get("prompt_version", "baseline"))
+            logger.info(f"Results written to Google Sheet: {sheet_url}")
+        finally:
+            rd.SHEET_URL = _orig
 
-        # Tab 1: Valid Queries
-        self._write_queries_tab(sh, run.valid_queries)
-
-        # Tab 2: SOI Coverage
-        self._write_coverage_tab(sh, run)
-
-        # Tab 3: Run Metadata
-        self._write_metadata_tab(sh, run)
-
-        # Tab 4 & 5: Performance Trends + Feedback (initialize if missing)
-        self._ensure_monitoring_tabs(sh)
-
-        logger.info(f"Results written to Google Sheet: {sheet_url}")
         return sheet_url
 
     def _write_queries_tab(self, sh, queries: List[GeneratedQuery]):
@@ -222,14 +219,14 @@ class OutputFormatter:
     def _ensure_monitoring_tabs(self, sh):
         """Create Performance Trends and Feedback tabs if they don't exist."""
         try:
-            from monitoring.metrics_tracker import MetricsTracker
+            from .monitoring.metrics_tracker import MetricsTracker
             tracker = MetricsTracker(sh)
             tracker._get_or_create_worksheet()
         except Exception as e:
             logger.warning(f"Could not create Performance Trends tab: {e}")
 
         try:
-            from monitoring.feedback_sheet import FeedbackSheet
+            from .monitoring.feedback_sheet import FeedbackSheet
             fb = FeedbackSheet(sh)
             fb.setup_feedback_tab()
         except Exception as e:
