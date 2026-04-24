@@ -14,10 +14,16 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import List, Optional, Tuple
+
+# Module-level lock + timestamp — enforces rate limit GLOBALLY across all
+# SemanticScholarClient instances (not just within a single instance).
+_s2_lock = threading.Lock()
+_s2_last_request = 0.0
 
 import requests
 
@@ -67,10 +73,10 @@ class SemanticScholarClient:
         if rate_limit_delay is not None:
             self.rate_limit_delay = rate_limit_delay
         elif self.api_key:
-            self.rate_limit_delay = 1.0
+            # S2 limit is 1/sec — use 1.2s to absorb network jitter
+            self.rate_limit_delay = 1.2
         else:
             self.rate_limit_delay = 3.0
-        self._last_request_time = 0.0
         self.session = requests.Session()
         if self.api_key:
             self.session.headers["x-api-key"] = self.api_key
@@ -180,7 +186,10 @@ class SemanticScholarClient:
         return S2Result(status=S2Status.HTTP_ERROR, error="exhausted retries")
 
     def _respect_rate_limit(self):
-        elapsed = time.time() - self._last_request_time
-        if elapsed < self.rate_limit_delay:
-            time.sleep(self.rate_limit_delay - elapsed)
-        self._last_request_time = time.time()
+        """Global rate limiter — shared across all threads and clients."""
+        global _s2_last_request
+        with _s2_lock:
+            elapsed = time.time() - _s2_last_request
+            if elapsed < self.rate_limit_delay:
+                time.sleep(self.rate_limit_delay - elapsed)
+            _s2_last_request = time.time()
