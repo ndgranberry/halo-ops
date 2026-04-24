@@ -54,7 +54,9 @@ class RoboScoutQueryGen:
 
     def __init__(self, model: str = None):
         self.model = model or settings.default_model
-        configure_lm(model=f"anthropic/{self.model}")
+        # Add anthropic/ prefix only if model has no provider prefix already
+        lm_model = self.model if "/" in self.model else f"anthropic/{self.model}"
+        configure_lm(model=lm_model)
         self.s2_client = SemanticScholarClient()
         self.pipeline = RoboScoutPipeline(self.s2_client)
         self.prompt_version = load_active_prompt(self.pipeline)
