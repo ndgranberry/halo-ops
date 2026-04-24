@@ -74,12 +74,16 @@ class SolvePlanner:
                 max_tokens=self.config.solve_plan_max_tokens,
             )
 
+        executor = ThreadPoolExecutor(max_workers=1)
+        future = executor.submit(_call)
         try:
-            with ThreadPoolExecutor(max_workers=1) as ex:
-                plan = ex.submit(_call).result(timeout=150)
+            plan = future.result(timeout=150)
         except FuturesTimeoutError:
             logger.error("SolvePlanner: API call timed out after 150s — skipping solve plan")
+            executor.shutdown(wait=False)
             return None
+        finally:
+            executor.shutdown(wait=False)
 
         if not plan or "angles" not in plan:
             logger.error("SolvePlanner: Claude did not return a valid plan")
