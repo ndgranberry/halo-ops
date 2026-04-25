@@ -318,6 +318,10 @@ class PersonDiscovery:
             # Add expertise as additional keywords
             expertise = self.config.example_patterns.get("areas_of_expertise", [])
             existing_kw = search_criteria.get("keywords", [])
+            if isinstance(existing_kw, str):
+                existing_kw = [k.strip() for k in existing_kw.split(",") if k.strip()]
+            if not isinstance(expertise, list):
+                expertise = []
             search_criteria["keywords"] = list(dict.fromkeys(existing_kw + expertise))[:20]
 
             logger.info(
