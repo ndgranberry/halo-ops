@@ -93,6 +93,9 @@ class FitScorer:
         cached_prefix = self._build_cached_prefix()
 
         # Score in parallel — 10 concurrent API calls
+        if not scorable:
+            logger.info("No scorable leads — skipping scoring")
+            return
         max_workers = min(10, len(scorable))
 
         def _score_one(lead: ScoutLead) -> None:

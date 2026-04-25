@@ -319,7 +319,13 @@ class PersonDiscovery:
             expertise = self.config.example_patterns.get("areas_of_expertise", [])
             existing_kw = search_criteria.get("keywords", [])
             if isinstance(existing_kw, str):
-                existing_kw = [k.strip() for k in existing_kw.split(",") if k.strip()]
+                import json as _json
+                try:
+                    existing_kw = _json.loads(existing_kw)
+                except Exception:
+                    existing_kw = [k.strip() for k in existing_kw.split(",") if k.strip()]
+            if not isinstance(existing_kw, list):
+                existing_kw = []
             if not isinstance(expertise, list):
                 expertise = []
             search_criteria["keywords"] = list(dict.fromkeys(existing_kw + expertise))[:20]
@@ -634,6 +640,16 @@ class PersonDiscovery:
         )
 
         if result and result.get("keywords"):
+            # Normalize any fields Claude returned as strings instead of lists
+            import json as _json
+            for field in ("keywords", "titles", "search_queries", "company_types"):
+                val = result.get(field)
+                if isinstance(val, str):
+                    try:
+                        val = _json.loads(val)
+                    except Exception:
+                        val = [v.strip() for v in val.split(",") if v.strip()]
+                    result[field] = val if isinstance(val, list) else []
             return result
 
         # Fallback: extract keywords from request text
