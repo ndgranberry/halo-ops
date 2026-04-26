@@ -143,8 +143,9 @@ class OutputFormatter:
         from . import run_daily as rd
 
         data = run.to_full_dict()
+        rid = (run.request.request_id if run.request else None) or data.get("request_id", "")
         result = {
-            "request_id": run.request_id or data.get("request_id", ""),
+            "request_id": rid,
             "title": data.get("request_title", ""),
             "company": "",  # not tracked in QueryRun
             "pipeline_output": data,
