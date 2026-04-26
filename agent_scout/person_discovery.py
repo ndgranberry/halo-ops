@@ -635,12 +635,15 @@ class PersonDiscovery:
             system=PERSON_SPEC_SYSTEM,
             user=prompt,
             tools=[GENERATE_SEARCH_CRITERIA_TOOL],
-            max_tokens=800,
+            max_tokens=2000,
             tool_choice={"type": "tool", "name": "generate_search_criteria"},
         )
 
         if result and result.get("keywords"):
-            # Normalize any fields Claude returned as strings instead of lists
+            # Normalize any fields Claude returned as strings instead of lists.
+            # Claude occasionally double-encodes array fields as JSON strings;
+            # max_tokens truncation can also make those strings invalid JSON,
+            # so the comma-split fallback strips brackets and quotes from each item.
             import json as _json
             for field in ("keywords", "titles", "search_queries", "company_types"):
                 val = result.get(field)
@@ -648,7 +651,11 @@ class PersonDiscovery:
                     try:
                         val = _json.loads(val)
                     except Exception:
-                        val = [v.strip() for v in val.split(",") if v.strip()]
+                        val = [
+                            v.strip().strip('"').strip("'").lstrip("[").rstrip("]")
+                            for v in val.split(",")
+                            if v.strip().strip('"').strip("'").lstrip("[").rstrip("]")
+                        ]
                     result[field] = val if isinstance(val, list) else []
             return result
 
