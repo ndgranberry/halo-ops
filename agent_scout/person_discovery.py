@@ -31,7 +31,7 @@ import requests
 from .claude_client import ClaudeClient
 from .models import ScoutLead, ScoutConfig, InputType, LeadStatus, deduplicate_leads
 from .prompts import (
-    PERSON_SPEC_SYSTEM, PERSON_SPEC_USER,
+    PERSON_SPEC_SYSTEM, PERSON_SPEC_USER, EXA_DISCOVERY_SYSTEM,
     EXAMPLE_PATTERNS_CONTEXT, SEARCH_CRITERIA_FROM_REQUEST,
     CONTACT_RESOLUTION_SYSTEM, CONTACT_RESOLUTION_USER,
 )
@@ -632,7 +632,7 @@ class PersonDiscovery:
         )
 
         result = self.claude.call_with_tools(
-            system=PERSON_SPEC_SYSTEM,
+            system=EXA_DISCOVERY_SYSTEM,
             user=prompt,
             tools=[GENERATE_SEARCH_CRITERIA_TOOL],
             max_tokens=2000,

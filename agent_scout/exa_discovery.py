@@ -27,7 +27,7 @@ from .claude_client import ClaudeClient
 from .models import ScoutLead, ScoutConfig, LeadStatus, deduplicate_leads
 from .prompts import (
     EXA_QUERY_GENERATION, EXA_QUERY_GENERATION_INDUSTRY, EXA_RESULT_EXTRACTION,
-    PERSON_SPEC_SYSTEM, BLURB_SYNTHESIS_SYSTEM, BLURB_SYNTHESIS_USER,
+    EXA_DISCOVERY_SYSTEM, BLURB_SYNTHESIS_SYSTEM, BLURB_SYNTHESIS_USER,
 )
 
 logger = logging.getLogger(__name__)
@@ -790,7 +790,7 @@ class ExaDiscovery:
         )
 
         return self.claude.call_with_tools(
-            system=PERSON_SPEC_SYSTEM,
+            system=EXA_DISCOVERY_SYSTEM,
             user=prompt,
             tools=[tool_schema],
             max_tokens=2000,
@@ -859,7 +859,7 @@ class ExaDiscovery:
             )
 
             data = self.claude.call_with_tools(
-                system=PERSON_SPEC_SYSTEM,
+                system=EXA_DISCOVERY_SYSTEM,
                 user=prompt,
                 tools=[EXTRACT_LEADS_TOOL],
                 max_tokens=1500,
@@ -982,7 +982,7 @@ class ExaDiscovery:
         )
 
         return self.claude.call_with_tools(
-            system=PERSON_SPEC_SYSTEM,
+            system=EXA_DISCOVERY_SYSTEM,
             user=prompt,
             tools=[GENERATE_QUERIES_TOOL],
             max_tokens=800,

@@ -214,6 +214,15 @@ VALIDATED TARGETING RULES (from analysis of 2,060 activated users on Halo):
 
 Use the generate_person_spec tool to submit your analysis."""
 
+EXA_DISCOVERY_SYSTEM = """You are an expert at finding researchers, startups, and innovators working in food science, agriculture, and biotech for R&D partnerships.
+
+Your tasks include:
+- Generating targeted web search queries to find relevant people and organizations
+- Extracting structured lead information from web search results
+- Generating search criteria (keywords, titles, queries) for a given partnering request
+
+Always use the provided tool to submit your output."""
+
 PERSON_SPEC_USER = """COMPANY: {company}
 
 PARTNERING REQUEST CONTEXT:
