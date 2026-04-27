@@ -293,7 +293,6 @@ class ExaDiscovery:
         """
         # Step 1: Generate Exa-optimized queries via Claude
         queries = self._generate_exa_queries()
-        logger.info(f"[DEBUG] _generate_exa_queries returned: {queries!r:.300}")
 
         if not queries:
             logger.warning("Failed to generate Exa queries — using search_criteria fallback")
@@ -794,7 +793,7 @@ class ExaDiscovery:
             system=PERSON_SPEC_SYSTEM,
             user=prompt,
             tools=[tool_schema],
-            max_tokens=800,
+            max_tokens=2000,
             tool_choice={"type": "tool", "name": "generate_queries"},
         )
 
@@ -866,11 +865,20 @@ class ExaDiscovery:
                 max_tokens=1500,
                 tool_choice={"type": "tool", "name": "extract_leads"},
             )
-            logger.info(f"[DEBUG] extract call returned: data={'None' if data is None else f'keys={list(data.keys()) if isinstance(data, dict) else type(data).__name__}'} leads={len(data.get('leads', [])) if isinstance(data, dict) else 'N/A'}")
             if not data:
                 continue
 
             extracted = data.get("leads", [])
+            # Claude occasionally double-encodes the leads array as a JSON string
+            if isinstance(extracted, str):
+                import json as _json
+                try:
+                    extracted = _json.loads(extracted)
+                except Exception:
+                    logger.warning(f"Could not parse leads string, skipping batch")
+                    continue
+            if not isinstance(extracted, list):
+                continue
             for item in extracted:
                 lead = ScoutLead(
                     first_name=item.get("first_name") or None,
