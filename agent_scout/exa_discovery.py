@@ -773,20 +773,28 @@ class ExaDiscovery:
     def _generate_exa_queries(self) -> Optional[Dict[str, List[str]]]:
         """Use Claude to generate Exa-optimized queries from request context."""
         industry_only = self._is_industry_only()
-
-        template = EXA_QUERY_GENERATION_INDUSTRY if industry_only else EXA_QUERY_GENERATION
         tool_schema = GENERATE_QUERIES_TOOL_INDUSTRY if industry_only else GENERATE_QUERIES_TOOL
 
         if industry_only:
             logger.info("Using industry-only query generation (no paper/university queries)")
 
-        prompt = template.format(
-            request_title=self.config.request_title or "Not specified",
-            request_looking_for=self.config.request_looking_for or "Not specified",
-            request_sois=self.config.request_sois or "Not specified",
-            request_partner_types=self.config.request_partner_types or "Not specified",
-            request_requirements=self.config.request_requirements or "Not specified",
-            request_out_of_scope=self.config.request_out_of_scope or "Not specified",
+        sois = self.config.request_sois or self.config.request_looking_for or self.config.request_title or ""
+        partner_types = self.config.request_partner_types or "researchers, startups, suppliers"
+        out_of_scope = self.config.request_out_of_scope or "none"
+
+        prompt = (
+            f"Generate targeted Exa semantic search queries for this R&D partnering request.\n\n"
+            f"Request title: {self.config.request_title or 'Not specified'}\n"
+            f"Looking for: {self.config.request_looking_for or 'Not specified'}\n"
+            f"Solutions of interest: {sois}\n"
+            f"Partner types: {partner_types}\n"
+            f"Requirements: {self.config.request_requirements or 'Not specified'}\n"
+            f"Out of scope (exclude): {out_of_scope}\n\n"
+            f"Generate 2-3 queries per category. Each query should be 2-3 descriptive sentences "
+            f"that sound like how someone would describe a relevant web page to a colleague — "
+            f"not keyword lists. End each query with a colon.\n\n"
+            f"Do NOT generate queries for out-of-scope areas. "
+            f"Use the generate_queries tool to submit your queries."
         )
 
         return self.claude.call_with_tools(
